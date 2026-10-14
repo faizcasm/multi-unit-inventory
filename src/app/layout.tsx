@@ -7,16 +7,16 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-sans' })
 
 export const metadata: Metadata = {
   title: {
-    default: 'Multi-Unit Inventory Hub',
-    template: '%s | Multi-Unit Inventory Hub',
+    default: 'Ricoz Inventory',
+    template: '%s | Ricoz Inventory',
   },
   description: 'Manage products and stock across multiple stores, warehouses, and distribution centers.',
   keywords: ['inventory', 'warehouse', 'stock management', 'transfer', 'multi-location'],
-  authors: [{ name: 'Multi-Unit Inventory Hub' }],
+  authors: [{ name: 'Ricoz Inventory' }],
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    siteName: 'Multi-Unit Inventory Hub',
+    siteName: 'Ricoz Inventory',
   },
 }
 

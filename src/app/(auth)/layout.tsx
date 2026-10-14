@@ -18,7 +18,7 @@ export default function AuthLayout({
         <div className="max-w-md text-center">
           <Link href="/" className="flex items-center justify-center gap-2 font-bold text-2xl mb-8">
             <Package className="h-8 w-8" />
-            <span>Inventory Hub</span>
+            <span>Ricoz Inventory</span>
           </Link>
           <h1 className="text-4xl font-bold tracking-tight mb-6">
             Manage Inventory Across Multiple Locations

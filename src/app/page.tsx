@@ -55,7 +55,7 @@ export default function HomePage() {
         <div className="container flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2 font-bold text-xl">
             <Package className="h-6 w-6 text-primary" />
-            <span>Inventory Hub</span>
+            <span>Ricoz Inventory</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -238,7 +238,7 @@ export default function HomePage() {
         <div className="container px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">Ready to Streamline Your Inventory?</h2>
           <p className="text-lg md:text-xl text-primary-foreground/80 mb-8 max-w-2xl mx-auto">
-            Join businesses already using Inventory Hub to manage multi-location stock with confidence.
+            Join businesses already using Ricoz Inventory to manage multi-location stock with confidence.
           </p>
           <Link href="/register">
             <Button size="lg" variant="secondary" className="gap-2">
@@ -256,7 +256,7 @@ export default function HomePage() {
             <div>
               <div className="flex items-center gap-2 font-bold text-lg mb-4">
                 <Package className="h-6 w-6 text-primary" />
-                <span>Inventory Hub</span>
+                <span>Ricoz Inventory</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-xs">
                 Multi-location inventory transfer management for modern businesses.
@@ -292,7 +292,7 @@ export default function HomePage() {
           </div>
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t pt-8">
             <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} Inventory Hub. All rights reserved.
+              © {new Date().getFullYear()} Ricoz Inventory. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               <ThemeToggle />

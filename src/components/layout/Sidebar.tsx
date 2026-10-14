@@ -38,7 +38,7 @@ export function Sidebar() {
             <div className="flex items-center justify-between mb-6">
               <Link href="/dashboard" className="flex items-center gap-2 font-bold text-xl">
                 <Package className="h-6 w-6 text-primary" />
-                <span>Inventory Hub</span>
+                <span>Ricoz Inventory</span>
               </Link>
               <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
                 <X className="h-5 w-5" />

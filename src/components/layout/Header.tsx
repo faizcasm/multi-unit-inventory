@@ -31,7 +31,7 @@ export function Header() {
         <div className="flex items-center gap-4">
           <Link href="/dashboard" className="flex items-center gap-2 font-bold text-xl">
             <Package className="h-6 w-6 text-primary" />
-            <span className="hidden sm:block">Inventory Hub</span>
+            <span className="hidden sm:block">Ricoz Inventory</span>
           </Link>
           
           <nav className="hidden md:flex items-center gap-1">
