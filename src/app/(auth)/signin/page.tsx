@@ -107,7 +107,7 @@ function SignInForm() {
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
-            <Link href="/auth/register" className="text-primary font-medium hover:underline">
+            <Link href="/register" className="text-primary font-medium hover:underline">
               Create one
             </Link>
           </div>

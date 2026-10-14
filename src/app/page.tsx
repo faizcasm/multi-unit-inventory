@@ -64,16 +64,16 @@ export default function HomePage() {
             <Link href="#workflow" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
               How It Works
             </Link>
-            <Link href="/auth/signin" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="/signin" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
               Sign In
             </Link>
-            <Link href="/auth/register">
+            <Link href="/register">
               <Button size="sm">Get Started</Button>
             </Link>
           </nav>
           <div className="flex items-center gap-4 md:hidden">
             <ThemeToggle />
-            <Link href="/auth/register">
+            <Link href="/register">
               <Button size="sm">Get Started</Button>
             </Link>
           </div>
@@ -101,13 +101,13 @@ export default function HomePage() {
               Track stock, manage transfers, handle approvals, and maintain full audit trails.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/auth/register">
+              <Link href="/register">
                 <Button size="lg" className="w-full sm:w-auto gap-2">
                   Start Free Trial
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
-              <Link href="/auth/signin">
+              <Link href="/signin">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
                   Sign In
                 </Button>
@@ -240,7 +240,7 @@ export default function HomePage() {
           <p className="text-lg md:text-xl text-primary-foreground/80 mb-8 max-w-2xl mx-auto">
             Join businesses already using Inventory Hub to manage multi-location stock with confidence.
           </p>
-          <Link href="/auth/register">
+          <Link href="/register">
             <Button size="lg" variant="secondary" className="gap-2">
               Create Your Organization
               <ArrowRight className="h-4 w-4" />

@@ -154,7 +154,7 @@ export default function RegisterPage() {
       }
 
       // Redirect to sign in with success message
-      router.push('/auth/signin?registered=true')
+      router.push('/signin?registered=true')
     } catch (err) {
       setSubmitError('An error occurred. Please try again.')
     } finally {
@@ -309,7 +309,7 @@ export default function RegisterPage() {
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link href="/auth/signin" className="text-primary font-medium hover:underline">
+            <Link href="/signin" className="text-primary font-medium hover:underline">
               Sign in
             </Link>
           </div>
