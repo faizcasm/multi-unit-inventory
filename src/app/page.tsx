@@ -121,7 +121,8 @@ export default function HomePage() {
           {/* Product Preview */}
           <div className="mt-16 relative">
             <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent z-10 h-32 bottom-0 top-auto" />
-            <div className="rounded-xl border shadow-xl overflow-hidden bg-card">
+            <div className="perspective">
+              <div className="rounded-xl border shadow-xl overflow-hidden bg-card animate-float-3d preserve-3d hover-3d transition-transform duration-500" style={{ transform: 'rotateX(8deg) rotateY(-4deg)' }}>
               <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/50">
                 <div className="flex gap-1.5">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -179,6 +180,7 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           </div>
         </div>
