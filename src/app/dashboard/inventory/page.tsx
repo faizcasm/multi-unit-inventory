@@ -189,3 +189,4 @@ export default function InventoryPage() {
     </div>
   )
 }
+export const dynamic = 'force-dynamic'

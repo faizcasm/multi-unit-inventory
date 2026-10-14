@@ -197,3 +197,4 @@ export default function TransfersPage() {
     </div>
   )
 }
+export const dynamic = 'force-dynamic'

@@ -223,3 +223,4 @@ export default function LocationsPage() {
     </div>
   )
 }
+export const dynamic = 'force-dynamic'

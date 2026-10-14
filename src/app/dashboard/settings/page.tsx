@@ -296,3 +296,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+export const dynamic = 'force-dynamic'

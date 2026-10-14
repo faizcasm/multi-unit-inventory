@@ -108,3 +108,4 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
     </div>
   )
 }
+export const dynamic = 'force-dynamic'
