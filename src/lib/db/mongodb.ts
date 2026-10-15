@@ -1,9 +1,9 @@
 import mongoose from 'mongoose'
 
-const MONGODB_URI = process.env.MONGODB_URI!
+const MONGODB_URI = process.env.MONGODB_URI
 
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local')
+if (!MONGODB_URI && process.env.NODE_ENV === 'development') {
+  console.warn('MONGODB_URI is not set. Add it in .env.local or Vercel env vars.')
 }
 
 interface MongooseCache {
@@ -32,7 +32,10 @@ async function connectDB(): Promise<typeof mongoose> {
       maxPoolSize: 10,
     }
 
-    cached!.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+    if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is not configured')
+  }
+  cached!.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
       return mongoose
     })
   }
