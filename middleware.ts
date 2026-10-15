@@ -3,15 +3,14 @@ import { NextResponse } from 'next/server'
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth
-  const isDashboardRoute = req.nextUrl.pathname.startsWith('/dashboard')
-  const isApiRoute = req.nextUrl.pathname.startsWith('/api')
-  const isAuthRoute = req.nextUrl.pathname.startsWith('/auth')
-  const isPublicRoute = req.nextUrl.pathname === '/' || req.nextUrl.pathname.startsWith('/api/auth')
+  const path = req.nextUrl.pathname
+  const isDashboardRoute = path.startsWith('/dashboard')
+  const isApiRoute = path.startsWith('/api')
+  const isAuthRoute = ['/signin', '/register', '/error'].includes(path)
+  const isPublicRoute = path === '/' || path.startsWith('/api/auth')
 
-  if (isDashboardRoute && !isApiRoute) {
-    if (!isLoggedIn) {
-      return NextResponse.redirect(new URL('/auth/signin', req.url))
-    }
+  if (isDashboardRoute && !isApiRoute && !isLoggedIn) {
+    return NextResponse.redirect(new URL('/signin', req.url))
   }
 
   if (isAuthRoute && isLoggedIn) {
