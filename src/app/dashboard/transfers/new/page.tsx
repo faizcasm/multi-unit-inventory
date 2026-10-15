@@ -3,7 +3,9 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Package, Plus, X } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { useCan } from '@/hooks/useCan'
+import { ChevronLeft, Package, Plus, X, ShieldAlert } from 'lucide-react'
 import { PageHeading } from '@/components/redesign/ui'
 
 const UNIT_OPTIONS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'cm', 'box', 'pack', 'roll', 'other']
@@ -17,6 +19,8 @@ interface LineItem {
 
 export default function NewTransferPage() {
   const router = useRouter()
+  const { status } = useSession()
+  const canCreate = useCan('transfers:create')
   const [locations, setLocations] = useState<{ _id: string; name: string; code: string }[]>([])
   const [products, setProducts] = useState<{ _id: string; name: string; sku: string }[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -113,6 +117,40 @@ export default function NewTransferPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="empty-state" style={{ minHeight: 260 }}>
+        Checking your permissions…
+      </div>
+    )
+  }
+
+  if (!canCreate) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="PERMISSION REQUIRED"
+          title="New transfer"
+          subtitle="Creating transfers is limited to admins and inventory managers."
+        />
+        <div
+          className="panel"
+          style={{ padding: 28, display: 'grid', gap: 11, justifyItems: 'center', textAlign: 'center' }}
+        >
+          <ShieldAlert size={26} style={{ color: '#d5556a' }} />
+          <b style={{ fontSize: 13 }}>Your role can&apos;t create transfers</b>
+          <p style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 400, lineHeight: 1.7, margin: 0 }}>
+            Ask a workspace admin for the Inventory manager role if you need to move stock. Approvers
+            and warehouse staff can still work on existing transfers.
+          </p>
+          <Link href="/dashboard/transfers" className="button button-secondary">
+            Back to transfers
+          </Link>
+        </div>
+      </>
+    )
   }
 
   return (

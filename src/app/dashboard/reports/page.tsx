@@ -72,6 +72,10 @@ export default function ReportsPage() {
       const response = await fetch(`/api/reports?${buildParams('csv').toString()}`)
       if (!response.ok) throw new Error('CSV export failed')
       const blob = await response.blob()
+      if (blob.size === 0) {
+        notify('No data to export')
+        return
+      }
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

@@ -321,11 +321,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (format === 'csv') {
-      if (data.length === 0) {
-        return NextResponse.json({ success: true, data: 'No data to export' })
-      }
-
-      const headers = Object.keys(data[0])
+      // Always honor the format contract: format=csv ⇒ text/csv (even with no
+      // rows) so the browser never saves a JSON blob under a .csv filename.
+      const headers = data.length > 0 ? Object.keys(data[0]) : []
       const csvRows = [
         headers.join(','),
         ...data.map((row) =>
@@ -338,7 +336,7 @@ export async function GET(request: NextRequest) {
           }).join(',')
         ),
       ]
-      const csv = csvRows.join('\n')
+      const csv = data.length > 0 ? csvRows.join('\n') : ''
 
       return new NextResponse(csv, {
         headers: {

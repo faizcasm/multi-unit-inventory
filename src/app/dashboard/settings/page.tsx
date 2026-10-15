@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   ChevronRight,
+  KeyRound,
   LockKeyhole,
   Monitor,
   Moon,
@@ -90,6 +91,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
+  const [pwdCurrent, setPwdCurrent] = useState('')
+  const [pwdNew, setPwdNew] = useState('')
+  const [pwdConfirm, setPwdConfirm] = useState('')
+  const [pwdSaving, setPwdSaving] = useState(false)
 
   const notify = (msg: string) => {
     setToast(msg)
@@ -150,6 +155,35 @@ export default function SettingsPage() {
     }
   }
 
+  const handleChangePassword = async () => {
+    if (!pwdCurrent || !pwdNew) {
+      notify('Fill in both password fields')
+      return
+    }
+    if (pwdNew !== pwdConfirm) {
+      notify('New passwords do not match')
+      return
+    }
+    setPwdSaving(true)
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: pwdCurrent, newPassword: pwdNew }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to change password')
+      notify(data.message || 'Password updated')
+      setPwdCurrent('')
+      setPwdNew('')
+      setPwdConfirm('')
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Failed to change password')
+    } finally {
+      setPwdSaving(false)
+    }
+  }
+
   const tabCopy: Record<Tab, string> = {
     Workspace: 'Update the details used to identify your organization.',
     Preferences: 'Set the default display and regional preferences.',
@@ -164,9 +198,11 @@ export default function SettingsPage() {
         title="Settings"
         subtitle="Manage workspace details, display preferences, and notification choices."
         action={
-          <button className="button button-primary" onClick={handleSave} disabled={saving || loading}>
-            <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
-          </button>
+          tab === 'Security' ? undefined : (
+            <button className="button button-primary" onClick={handleSave} disabled={saving || loading}>
+              <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          )
         }
       />
 
@@ -325,35 +361,86 @@ export default function SettingsPage() {
               />
             </div>
           ) : (
-            <div className="settings-info-block">
-              <ShieldCheck size={20} />
-              <b>Role-aware access</b>
-              <p>
-                Your workspace enforces permissions server-side: only authorized roles can create,
-                approve, dispatch, or receive stock. Passwords are hashed with bcrypt and password
-                reset links expire after one hour.
-              </p>
-              <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
-                <span>Session</span>
-                <b>JWT · 30 days</b>
+            <>
+              <div className="settings-info-block" style={{ marginBottom: 18 }}>
+                <KeyRound size={20} />
+                <b>Change your password</b>
+                <p>
+                  Pick a strong password you don&apos;t use elsewhere. You&apos;ll use it the next
+                  time you sign in, and existing reset links stop working.
+                </p>
+                <label className="settings-field" style={{ maxWidth: '100%' }}>
+                  Current password
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={pwdCurrent}
+                    onChange={(e) => setPwdCurrent(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </label>
+                <label className="settings-field" style={{ maxWidth: '100%' }}>
+                  New password
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={pwdNew}
+                    onChange={(e) => setPwdNew(e.target.value)}
+                    placeholder="At least 8 characters"
+                  />
+                  <small>Between 8 and 128 characters.</small>
+                </label>
+                <label className="settings-field" style={{ maxWidth: '100%', marginBottom: 16 }}>
+                  Confirm new password
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={pwdConfirm}
+                    onChange={(e) => setPwdConfirm(e.target.value)}
+                    placeholder="Repeat the new password"
+                  />
+                </label>
+                <button
+                  className="button button-primary"
+                  onClick={handleChangePassword}
+                  disabled={pwdSaving}
+                >
+                  <LockKeyhole size={15} /> {pwdSaving ? 'Updating…' : 'Update password'}
+                </button>
               </div>
-              <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
-                <span>Password hashing</span>
-                <b>bcrypt · 12 rounds</b>
+
+              <div className="settings-info-block">
+                <ShieldCheck size={20} />
+                <b>Role-aware access</b>
+                <p>
+                  Your workspace enforces permissions server-side: only authorized roles can create,
+                  approve, dispatch, or receive stock. Passwords are hashed with bcrypt and password
+                  reset links expire after one hour.
+                </p>
+                <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
+                  <span>Session</span>
+                  <b>JWT · 30 days</b>
+                </div>
+                <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
+                  <span>Password hashing</span>
+                  <b>bcrypt · 12 rounds</b>
+                </div>
+                <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
+                  <span>Audit trail</span>
+                  <b>Enabled</b>
+                </div>
               </div>
-              <div className="detail-kv" style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 0' }}>
-                <span>Audit trail</span>
-                <b>Enabled</b>
-              </div>
-            </div>
+            </>
           )}
 
-          <div className="settings-save-row">
-            <span>Changes apply to this workspace immediately after saving.</span>
-            <button className="button button-primary" onClick={handleSave} disabled={saving || loading}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
-            </button>
-          </div>
+          {tab !== 'Security' && (
+            <div className="settings-save-row">
+              <span>Changes apply to this workspace immediately after saving.</span>
+              <button className="button button-primary" onClick={handleSave} disabled={saving || loading}>
+                <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          )}
         </section>
       </div>
 

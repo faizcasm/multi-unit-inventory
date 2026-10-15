@@ -4,11 +4,15 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Package, Plus, Search, AlertCircle, ArrowRight } from 'lucide-react'
 import { PageHeading, Status, EmptyState } from '@/components/redesign/ui'
+import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
+import { apiFetch, ApiPagination } from '@/lib/api'
+import { useCan } from '@/hooks/useCan'
 
 interface Product {
   _id: string
   name: string
   sku: string
+  barcode?: string
   category?: string
   unitOfMeasure: string
   reorderThreshold: number
@@ -20,26 +24,44 @@ interface Product {
 
 const CATEGORIES = ['', 'Electronics', 'Clothing', 'Food', 'Furniture', 'Other']
 
+const PAGE_SIZE = 20
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<ApiPagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const canCreate = useCan('products:create')
+
+  /** Query string for the current filters. */
+  const buildQuery = () => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('limit', String(PAGE_SIZE))
+    if (search) params.set('search', search)
+    if (category) params.set('category', category)
+    if (statusFilter) params.set('isActive', statusFilter === 'active' ? 'true' : 'false')
+    return params.toString()
+  }
 
   const fetchProducts = async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (category) params.set('category', category)
-      if (statusFilter) params.set('isActive', statusFilter === 'active' ? 'true' : 'false')
-
-      const response = await fetch(`/api/products?${params.toString()}`)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to fetch products')
-      setProducts(data.data || [])
+      const res = await apiFetch<Product[]>(`/api/products?${buildQuery()}`)
+      if (!res.success) throw new Error(res.error || 'Failed to fetch products')
+      const rows = res.data || []
+      setProducts(rows)
+      const pg = res.pagination
+      setPagination(pg || { page, limit: PAGE_SIZE, total: rows.length, totalPages: 1 })
+      // If the data shrank and we're past the end, jump to the last page.
+      if (pg && pg.totalPages > 0 && pg.page > pg.totalPages) {
+        setPage(pg.totalPages)
+      }
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load products')
@@ -51,7 +73,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, category, statusFilter])
+  }, [search, category, statusFilter, page])
 
   const statusOf = (p: Product) =>
     !p.isActive ? 'Inactive' : p.isOutOfStock ? 'Out of stock' : p.isLowStock ? 'Low stock' : 'In stock'
@@ -63,23 +85,66 @@ export default function ProductsPage() {
         title="Products"
         subtitle="Manage the items your teams stock, move, and reorder."
         action={
-          <Link href="/dashboard/products/new" className="button button-primary">
-            <Plus size={16} /> New product
-          </Link>
+          <>
+            <CsvExportButton
+              path={`/api/products?${buildQuery()}`}
+              filename="products"
+              noun="products"
+              columns={[
+                { key: 'product', header: 'Product' },
+                { key: 'sku', header: 'SKU' },
+                { key: 'category', header: 'Category' },
+                { key: 'barcode', header: 'Barcode' },
+                { key: 'unit', header: 'Unit' },
+                { key: 'active', header: 'Active' },
+              ]}
+              mapRow={(row) => ({
+                product: row.name,
+                sku: row.sku,
+                category: row.category || '',
+                barcode: row.barcode || '',
+                unit: row.unitOfMeasure || '',
+                active: row.isActive ? 'Yes' : 'No',
+              })}
+            />
+            {canCreate && (
+              <Link href="/dashboard/products/new" className="button button-primary">
+                <Plus size={16} /> New product
+              </Link>
+            )}
+          </>
         }
       />
 
       <section className="panel table-panel inventory-table-panel">
         <div className="inventory-toolbar">
           <div className="table-tabs">
-            <button className={statusFilter === '' ? 'selected' : ''} onClick={() => setStatusFilter('')}>
+            <button
+              className={statusFilter === '' ? 'selected' : ''}
+              onClick={() => {
+                setStatusFilter('')
+                setPage(1)
+              }}
+            >
               All items
-              <span className="tab-count">{products.length}</span>
+              {statusFilter === '' && <span className="tab-count">{pagination.total}</span>}
             </button>
-            <button className={statusFilter === 'active' ? 'selected' : ''} onClick={() => setStatusFilter('active')}>
+            <button
+              className={statusFilter === 'active' ? 'selected' : ''}
+              onClick={() => {
+                setStatusFilter('active')
+                setPage(1)
+              }}
+            >
               Active
             </button>
-            <button className={statusFilter === 'inactive' ? 'selected' : ''} onClick={() => setStatusFilter('inactive')}>
+            <button
+              className={statusFilter === 'inactive' ? 'selected' : ''}
+              onClick={() => {
+                setStatusFilter('inactive')
+                setPage(1)
+              }}
+            >
               Inactive
             </button>
           </div>
@@ -88,7 +153,10 @@ export default function ProductsPage() {
               <Search size={15} />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                }}
                 placeholder="Search products"
                 aria-label="Search products"
               />
@@ -96,7 +164,10 @@ export default function ProductsPage() {
             <select
               className="filter-button"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={(e) => {
+                setCategory(e.target.value)
+                setPage(1)
+              }}
               aria-label="Filter by category"
               style={{ height: 34 }}
             >
@@ -140,7 +211,12 @@ export default function ProductsPage() {
                 {products.map((product) => (
                   <tr key={product._id}>
                     <td>
-                      <span className="product-cell">
+                      <Link
+                        href={`/dashboard/products/${product._id}`}
+                        className="product-cell"
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                        title={`Open ${product.name}`}
+                      >
                         <span className="product-thumbnail">
                           <Package size={17} />
                         </span>
@@ -148,7 +224,7 @@ export default function ProductsPage() {
                           <b>{product.name}</b>
                           <small>{product.sku}</small>
                         </span>
-                      </span>
+                      </Link>
                     </td>
                     <td>
                       <span className="category-text">{product.category || 'Uncategorized'}</span>
@@ -176,11 +252,13 @@ export default function ProductsPage() {
           )}
         </div>
         {!loading && products.length > 0 && (
-          <div className="table-footer">
-            <span>
-              Showing <b>{products.length}</b> products
-            </span>
-          </div>
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            total={pagination.total}
+            onPage={setPage}
+            noun="products"
+          />
         )}
       </section>
     </>

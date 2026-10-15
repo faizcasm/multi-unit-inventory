@@ -3,11 +3,15 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Package, SlidersHorizontal, Warehouse, ArrowDownRight, ArrowUpRight } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { useCan } from '@/hooks/useCan'
+import { ChevronLeft, Package, SlidersHorizontal, Warehouse, ArrowDownRight, ArrowUpRight, ShieldAlert } from 'lucide-react'
 import { PageHeading } from '@/components/redesign/ui'
 
 export default function AdjustInventoryPage() {
   const router = useRouter()
+  const { status } = useSession()
+  const canAdjust = useCan('inventory:adjust')
   const [products, setProducts] = useState<{ _id: string; name: string; sku: string }[]>([])
   const [locations, setLocations] = useState<{ _id: string; name: string; code: string }[]>([])
 
@@ -67,6 +71,40 @@ export default function AdjustInventoryPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="empty-state" style={{ minHeight: 260 }}>
+        Checking your permissions…
+      </div>
+    )
+  }
+
+  if (!canAdjust) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="PERMISSION REQUIRED"
+          title="Adjust stock"
+          subtitle="Stock corrections are limited to inventory managers and admins."
+        />
+        <div
+          className="panel"
+          style={{ padding: 28, display: 'grid', gap: 11, justifyItems: 'center', textAlign: 'center' }}
+        >
+          <ShieldAlert size={26} style={{ color: '#d5556a' }} />
+          <b style={{ fontSize: 13 }}>Your role can&apos;t adjust stock</b>
+          <p style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 400, lineHeight: 1.7, margin: 0 }}>
+            Ask a workspace admin for the Inventory manager role if you need to record corrections.
+            You can still browse stock in the meantime.
+          </p>
+          <Link href="/dashboard/inventory" className="button button-secondary">
+            Back to inventory
+          </Link>
+        </div>
+      </>
+    )
   }
 
   return (

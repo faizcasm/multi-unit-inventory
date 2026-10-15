@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Package, Search, SlidersHorizontal, AlertCircle, Plus } from 'lucide-react'
 import { PageHeading, Status, EmptyState } from '@/components/redesign/ui'
+import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
+import { apiFetch, ApiPagination } from '@/lib/api'
+import { useCan } from '@/hooks/useCan'
 
 interface InventoryItem {
   _id: string
-  product: { name: string; sku: string; unitOfMeasure: string; reorderThreshold: number; isActive: boolean } | null
+  product: { _id?: string; name: string; sku: string; unitOfMeasure: string; reorderThreshold: number; isActive: boolean } | null
   location: { name: string; code: string } | null
   availableQuantity: number
   reservedQuantity: number
@@ -17,14 +20,20 @@ interface InventoryItem {
 
 type Tab = 'All items' | 'Low stock' | 'Out of stock'
 
+const PAGE_SIZE = 50
+
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [search, setSearch] = useState('')
   const [locationId, setLocationId] = useState('')
   const [locations, setLocations] = useState<{ _id: string; name: string; code: string }[]>([])
   const [tab, setTab] = useState<Tab>('All items')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<ApiPagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const canAdjust = useCan('inventory:adjust')
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -37,19 +46,31 @@ export default function InventoryPage() {
     fetchLocations()
   }, [])
 
+  /** Query string for the current filters (optionally pinned to a page). */
+  const buildQuery = () => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('limit', String(PAGE_SIZE))
+    if (search) params.set('search', search)
+    if (locationId) params.set('locationId', locationId)
+    if (tab === 'Low stock') params.set('lowStock', 'true')
+    if (tab === 'Out of stock') params.set('outOfStock', 'true')
+    return params.toString()
+  }
+
   const fetchInventory = async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (locationId) params.set('locationId', locationId)
-      if (tab === 'Low stock') params.set('lowStock', 'true')
-      if (tab === 'Out of stock') params.set('outOfStock', 'true')
-
-      const response = await fetch(`/api/inventory?${params.toString()}`)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to fetch inventory')
-      setInventory(data.data || [])
+      const res = await apiFetch<InventoryItem[]>(`/api/inventory?${buildQuery()}`)
+      if (!res.success) throw new Error(res.error || 'Failed to fetch inventory')
+      const rows = res.data || []
+      setInventory(rows)
+      const pg = res.pagination
+      setPagination(pg || { page, limit: PAGE_SIZE, total: rows.length, totalPages: 1 })
+      // If the data shrank and we're past the end, jump to the last page.
+      if (pg && pg.totalPages > 0 && pg.page > pg.totalPages) {
+        setPage(pg.totalPages)
+      }
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load inventory')
@@ -61,7 +82,7 @@ export default function InventoryPage() {
   useEffect(() => {
     fetchInventory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, locationId, tab])
+  }, [search, locationId, tab, page])
 
   const statusOf = (item: InventoryItem): string => {
     if (item.availableQuantity === 0) return 'Out of stock'
@@ -74,10 +95,6 @@ export default function InventoryPage() {
     return 'In stock'
   }
 
-  const allCount = inventory.length
-  const lowCount = inventory.filter((i) => statusOf(i) === 'Low stock').length
-  const outCount = inventory.filter((i) => statusOf(i) === 'Out of stock').length
-
   return (
     <>
       <PageHeading
@@ -86,9 +103,36 @@ export default function InventoryPage() {
         subtitle="Keep product availability and stock levels clear across every location."
         action={
           <>
-            <Link href="/dashboard/inventory/adjust" className="button button-secondary">
-              <SlidersHorizontal size={15} /> Adjust stock
-            </Link>
+            {canAdjust && (
+              <Link href="/dashboard/inventory/adjust" className="button button-secondary">
+                <SlidersHorizontal size={15} /> Adjust stock
+              </Link>
+            )}
+            <CsvExportButton
+              path={`/api/inventory?${buildQuery()}`}
+              filename="inventory"
+              noun="stock records"
+              columns={[
+                { key: 'product', header: 'Product' },
+                { key: 'sku', header: 'SKU' },
+                { key: 'location', header: 'Location' },
+                { key: 'available', header: 'Available' },
+                { key: 'reserved', header: 'Reserved' },
+                { key: 'inTransit', header: 'In transit' },
+                { key: 'damaged', header: 'Damaged' },
+                { key: 'status', header: 'Status' },
+              ]}
+              mapRow={(row) => ({
+                product: row.product?.name || 'Unnamed product',
+                sku: row.product?.sku || '',
+                location: row.location?.name || '',
+                available: row.availableQuantity,
+                reserved: row.reservedQuantity,
+                inTransit: row.inTransitQuantity,
+                damaged: row.damagedQuantity,
+                status: statusOf(row),
+              })}
+            />
             <Link href="/dashboard/products/new" className="button button-primary">
               <Plus size={16} /> New product
             </Link>
@@ -100,10 +144,16 @@ export default function InventoryPage() {
         <div className="inventory-toolbar">
           <div className="table-tabs">
             {(['All items', 'Low stock', 'Out of stock'] as Tab[]).map((t) => (
-              <button key={t} className={tab === t ? 'selected' : ''} onClick={() => setTab(t)}>
+              <button
+                key={t}
+                className={tab === t ? 'selected' : ''}
+                onClick={() => {
+                  setTab(t)
+                  setPage(1)
+                }}
+              >
                 {t}
-                {t === 'Low stock' && <span className="tab-count">{lowCount}</span>}
-                {t === 'Out of stock' && <span className="tab-count">{outCount}</span>}
+                {tab === t && <span className="tab-count">{pagination.total}</span>}
               </button>
             ))}
           </div>
@@ -112,7 +162,10 @@ export default function InventoryPage() {
               <Search size={15} />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                }}
                 placeholder="Search products"
                 aria-label="Search products"
               />
@@ -120,7 +173,10 @@ export default function InventoryPage() {
             <select
               className="filter-button"
               value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
+              onChange={(e) => {
+                setLocationId(e.target.value)
+                setPage(1)
+              }}
               aria-label="Filter by location"
               style={{ height: 34 }}
             >
@@ -162,15 +218,32 @@ export default function InventoryPage() {
                 {inventory.map((item) => (
                   <tr key={item._id}>
                     <td>
-                      <span className="product-cell">
-                        <span className="product-thumbnail">
-                          <Package size={17} />
+                      {item.product?._id ? (
+                        <Link
+                          href={`/dashboard/products/${item.product._id}`}
+                          className="product-cell"
+                          style={{ color: 'inherit', textDecoration: 'none' }}
+                          title={`Open ${item.product?.name || 'product'}`}
+                        >
+                          <span className="product-thumbnail">
+                            <Package size={17} />
+                          </span>
+                          <span>
+                            <b>{item.product?.name || 'Unnamed product'}</b>
+                            <small>{item.product?.sku}</small>
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="product-cell">
+                          <span className="product-thumbnail">
+                            <Package size={17} />
+                          </span>
+                          <span>
+                            <b>{item.product?.name || 'Unnamed product'}</b>
+                            <small>{item.product?.sku}</small>
+                          </span>
                         </span>
-                        <span>
-                          <b>{item.product?.name || 'Unnamed product'}</b>
-                          <small>{item.product?.sku}</small>
-                        </span>
-                      </span>
+                      )}
                     </td>
                     <td>
                       <span className="table-location">{item.location?.name}</span>
@@ -195,11 +268,13 @@ export default function InventoryPage() {
           )}
         </div>
         {!loading && inventory.length > 0 && (
-          <div className="table-footer">
-            <span>
-              Showing <b>{inventory.length}</b> stock records
-            </span>
-          </div>
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            total={pagination.total}
+            onPage={setPage}
+            noun="stock records"
+          />
         )}
       </section>
     </>

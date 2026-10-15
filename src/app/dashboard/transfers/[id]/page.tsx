@@ -16,6 +16,9 @@ import {
   X,
 } from 'lucide-react'
 import { PageHeading, Status, Toast } from '@/components/redesign/ui'
+import { useCan } from '@/hooks/useCan'
+
+const NO_PERM_TITLE = "Your role can't perform this action"
 
 interface LineItem {
   product: { _id: string; name: string; sku: string; unitOfMeasure?: string } | string
@@ -64,10 +67,35 @@ export default function TransferDetailPage() {
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // role permissions (additive to status-based eligibility)
+  const canSubmit = useCan('transfers:submit')
+  const canApprove = useCan('transfers:approve')
+  const canReject = useCan('transfers:reject')
+  const canDispatch = useCan('transfers:dispatch')
+  const canReceive = useCan('transfers:receive')
+  const canCancel = useCan('transfers:cancel')
+  const can: Record<string, boolean> = {
+    submit: canSubmit,
+    approve: canApprove,
+    reject: canReject,
+    dispatch: canDispatch,
+    receive: canReceive,
+    cancel: canCancel,
+  }
+
   // action dialogs
   const [action, setAction] = useState<null | 'submit' | 'approve' | 'reject' | 'dispatch' | 'receive' | 'cancel'>(null)
   const [reason, setReason] = useState('')
   const [recvQty, setRecvQty] = useState<Record<string, number>>({})
+  const [approvalQty, setApprovalQty] = useState<Record<string, string>>({})
+  const [approvalNotes, setApprovalNotes] = useState('')
+
+  const approvalErrorFor = (li: LineItem): string | null => {
+    const raw = (approvalQty[pid(li)] ?? '').trim()
+    if (!/^\d+$/.test(raw)) return 'Enter a whole number'
+    if (Number(raw) > li.requestedQuantity) return `Cannot exceed requested (${li.requestedQuantity})`
+    return null
+  }
 
   const notify = (msg: string) => {
     setToast(msg)
@@ -120,13 +148,29 @@ export default function TransferDetailPage() {
 
   const runAction = async () => {
     if (!transfer) return
+    if (action && !can[action]) return notify(NO_PERM_TITLE)
     switch (action) {
       case 'submit':
         await postAction('submit', { transferId: transfer._id }, 'Transfer submitted for approval')
         break
-      case 'approve':
-        await postAction('approve', { transferId: transfer._id }, 'Transfer approved')
+      case 'approve': {
+        const invalidLines = transfer.lineItems.filter((li) => approvalErrorFor(li))
+        if (invalidLines.length > 0) return notify('Fix the highlighted quantities before approving')
+        const notes = approvalNotes.trim()
+        await postAction(
+          'approve',
+          {
+            transferId: transfer._id,
+            ...(notes ? { approvalNotes: notes } : {}),
+            lineItems: transfer.lineItems.map((li) => ({
+              productId: pid(li),
+              approvedQuantity: Number((approvalQty[pid(li)] ?? '').trim()),
+            })),
+          },
+          'Transfer approved'
+        )
         break
+      }
       case 'reject':
         if (!reason.trim()) return notify('A rejection reason is required')
         await postAction('reject', { transferId: transfer._id, rejectionReason: reason }, 'Transfer rejected')
@@ -219,6 +263,10 @@ export default function TransferDetailPage() {
   }
 
   const next = nextAction()
+  const nextKey = next?.key
+  const nextAllowed = !nextKey || can[nextKey]
+  const approvalInvalid = transfer.lineItems.some((li) => approvalErrorFor(li))
+  const actionAllowed = !action || can[action]
 
   return (
     <>
@@ -315,6 +363,8 @@ export default function TransferDetailPage() {
                 <button
                   className="button button-primary full-width"
                   style={{ marginTop: 18 }}
+                  disabled={!nextAllowed}
+                  title={nextAllowed ? undefined : NO_PERM_TITLE}
                   onClick={() => {
                     setReason('')
                     if (next.key === 'receive') {
@@ -324,13 +374,21 @@ export default function TransferDetailPage() {
                       })
                       setRecvQty(init)
                     }
+                    if (next.key === 'approve') {
+                      const init: Record<string, string> = {}
+                      transfer.lineItems.forEach((li) => {
+                        init[pid(li)] = String(li.requestedQuantity)
+                      })
+                      setApprovalQty(init)
+                      setApprovalNotes('')
+                    }
                     setAction(next.key)
                   }}
                 >
                   <next.icon size={16} /> {next.label}
                 </button>
               )}
-              {s === 'PENDING_APPROVAL' && (
+              {s === 'PENDING_APPROVAL' && canReject && (
                 <button
                   className="reject-button full-width"
                   style={{ marginTop: 8, width: '100%', minHeight: 40, borderRadius: 10, fontWeight: 700, fontSize: 12 }}
@@ -342,7 +400,7 @@ export default function TransferDetailPage() {
                   Reject request
                 </button>
               )}
-              {['DRAFT', 'PENDING_APPROVAL'].includes(s) && (
+              {['DRAFT', 'PENDING_APPROVAL'].includes(s) && canCancel && (
                 <button
                   className="button button-secondary full-width"
                   style={{ marginTop: 8 }}
@@ -526,8 +584,63 @@ export default function TransferDetailPage() {
               </div>
             )}
             {action === 'approve' && (
-              <div className="data-disclaimer" style={{ margin: 0 }}>
-                <CheckCircle2 size={14} /> Approval unlocks dispatching for this transfer.
+              <div>
+                <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 10px' }}>
+                  Review the approved quantity per product — values default to the requested amount.
+                </p>
+                {transfer.lineItems.map((li) => {
+                  const qtyError = approvalErrorFor(li)
+                  return (
+                    <div
+                      key={pid(li)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)' }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <b style={{ fontSize: 12, display: 'block' }}>{pname(li)}</b>
+                        <small style={{ fontSize: 10, color: 'var(--muted)' }}>
+                          {psku(li) ? `${psku(li)} · ` : ''}requested {li.requestedQuantity}
+                        </small>
+                        {qtyError && (
+                          <small style={{ fontSize: 10, color: '#d9534f', display: 'block', marginTop: 2 }}>{qtyError}</small>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={li.requestedQuantity}
+                        step={1}
+                        value={approvalQty[pid(li)] ?? String(li.requestedQuantity)}
+                        onChange={(e) => setApprovalQty((prev) => ({ ...prev, [pid(li)]: e.target.value }))}
+                        aria-label={`Approved quantity for ${pname(li)}`}
+                        style={{
+                          width: 80,
+                          height: 36,
+                          borderRadius: 8,
+                          border: `1px solid ${qtyError ? '#d9534f' : 'var(--line)'}`,
+                          background: 'var(--surface)',
+                          color: 'var(--ink)',
+                          padding: '0 10px',
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+                <label className="settings-field" style={{ maxWidth: 'none', marginTop: 12 }}>
+                  Approval notes (optional)
+                  <div className="field-wrap" style={{ height: 'auto', padding: '10px 12px' }}>
+                    <textarea
+                      rows={2}
+                      value={approvalNotes}
+                      onChange={(e) => setApprovalNotes(e.target.value)}
+                      placeholder="Add a note for the requester…"
+                      maxLength={500}
+                      style={{ border: 0, outline: 0, width: '100%', background: 'transparent', resize: 'vertical', font: 'inherit', color: 'var(--ink)' }}
+                    />
+                  </div>
+                </label>
+                <div className="data-disclaimer" style={{ margin: 0 }}>
+                  <CheckCircle2 size={14} /> Approval unlocks dispatching for this transfer.
+                </div>
               </div>
             )}
             {action === 'submit' && (
@@ -540,7 +653,12 @@ export default function TransferDetailPage() {
               <button className="button button-secondary" onClick={() => setAction(null)} disabled={busy}>
                 Back
               </button>
-              <button className="button button-primary" onClick={runAction} disabled={busy}>
+              <button
+                className="button button-primary"
+                onClick={runAction}
+                disabled={busy || !actionAllowed || (action === 'approve' && approvalInvalid)}
+                title={actionAllowed ? (action === 'approve' && approvalInvalid ? 'Fix the highlighted quantities' : undefined) : NO_PERM_TITLE}
+              >
                 {busy
                   ? 'Working…'
                   : action === 'submit'

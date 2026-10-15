@@ -1,135 +1,18 @@
 import { UserRole } from '@/models/User'
 import { Types } from 'mongoose'
+import {
+  rolePermissions,
+  hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
+  getPermissionsForRole,
+} from './matrix'
+import type { Permission } from './matrix'
 
-export type Permission =
-  | 'organization:read'
-  | 'organization:update'
-  | 'organization:delete'
-  | 'users:read'
-  | 'users:create'
-  | 'users:update'
-  | 'users:delete'
-  | 'locations:read'
-  | 'locations:create'
-  | 'locations:update'
-  | 'locations:deactivate'
-  | 'products:read'
-  | 'products:create'
-  | 'products:update'
-  | 'products:deactivate'
-  | 'inventory:read'
-  | 'inventory:adjust'
-  | 'transfers:read'
-  | 'transfers:create'
-  | 'transfers:submit'
-  | 'transfers:approve'
-  | 'transfers:reject'
-  | 'transfers:dispatch'
-  | 'transfers:receive'
-  | 'transfers:cancel'
-  | 'reports:read'
-  | 'reports:export'
-  | 'audit:read'
-  | 'settings:read'
-  | 'settings:update'
-
-const rolePermissions: Record<UserRole, Permission[]> = {
-  admin: [
-    'organization:read',
-    'organization:update',
-    'organization:delete',
-    'users:read',
-    'users:create',
-    'users:update',
-    'users:delete',
-    'locations:read',
-    'locations:create',
-    'locations:update',
-    'locations:deactivate',
-    'products:read',
-    'products:create',
-    'products:update',
-    'products:deactivate',
-    'inventory:read',
-    'inventory:adjust',
-    'transfers:read',
-    'transfers:create',
-    'transfers:submit',
-    'transfers:approve',
-    'transfers:reject',
-    'transfers:dispatch',
-    'transfers:receive',
-    'transfers:cancel',
-    'reports:read',
-    'reports:export',
-    'audit:read',
-    'settings:read',
-    'settings:update',
-  ],
-  inventory_manager: [
-    'organization:read',
-    'users:read',
-    'locations:read',
-    'locations:create',
-    'locations:update',
-    'products:read',
-    'products:create',
-    'products:update',
-    'products:deactivate',
-    'inventory:read',
-    'inventory:adjust',
-    'transfers:read',
-    'transfers:create',
-    'transfers:submit',
-    'transfers:dispatch',
-    'transfers:receive',
-    'transfers:cancel',
-    'reports:read',
-    'reports:export',
-    'audit:read',
-    'settings:read',
-  ],
-  approver: [
-    'organization:read',
-    'users:read',
-    'locations:read',
-    'products:read',
-    'inventory:read',
-    'transfers:read',
-    'transfers:approve',
-    'transfers:reject',
-    'reports:read',
-    'audit:read',
-    'settings:read',
-  ],
-  warehouse_staff: [
-    'organization:read',
-    'locations:read',
-    'products:read',
-    'inventory:read',
-    'transfers:read',
-    'transfers:dispatch',
-    'transfers:receive',
-    'reports:read',
-    'settings:read',
-  ],
-}
-
-export function hasPermission(role: UserRole, permission: Permission): boolean {
-  return rolePermissions[role]?.includes(permission) ?? false
-}
-
-export function hasAnyPermission(role: UserRole, permissions: Permission[]): boolean {
-  return permissions.some((p) => hasPermission(role, p))
-}
-
-export function hasAllPermissions(role: UserRole, permissions: Permission[]): boolean {
-  return permissions.every((p) => hasPermission(role, p))
-}
-
-export function getPermissionsForRole(role: UserRole): Permission[] {
-  return rolePermissions[role] ?? []
-}
+// Permission matrix + role checks live in the client-safe module so that
+// 'use client' components can import them without pulling in mongoose.
+export { rolePermissions, hasPermission, hasAnyPermission, hasAllPermissions, getPermissionsForRole }
+export type { Permission }
 
 export function canAccessLocation(
   userLocationPermissions: Types.ObjectId[],

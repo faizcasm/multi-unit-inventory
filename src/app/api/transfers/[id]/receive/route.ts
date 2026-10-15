@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth/auth'
 import { receiveTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { sendTransferNotification } from '@/lib/transfer-emails'
 import { Types } from 'mongoose'
 
 export async function POST(
@@ -312,6 +313,8 @@ export async function POST(
         resourceId: transfer._id,
         metadata: { reference: transfer.reference, receiptNotes: parsed.data.receiptNotes },
       })
+
+      await sendTransferNotification(transfer._id, 'RECEIVED', session.user.id)
 
       return NextResponse.json({ success: true, data: transfer })
     } catch (error) {

@@ -12,6 +12,9 @@ import {
   X,
 } from 'lucide-react'
 import { PageHeading, Metric, Status, EmptyState } from '@/components/redesign/ui'
+import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
+import { apiFetch, ApiPagination } from '@/lib/api'
+import { useCan } from '@/hooks/useCan'
 
 interface Location {
   _id: string
@@ -36,13 +39,19 @@ const locationTypeLabels: Record<string, string> = {
 
 const TYPE_COLORS = ['lavender', 'mint', 'peach', 'blue']
 
+const PAGE_SIZE = 20
+
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([])
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<ApiPagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+
+  const canCreate = useCan('locations:create')
 
   // create form
   const [name, setName] = useState('')
@@ -52,17 +61,29 @@ export default function LocationsPage() {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
+  /** Query string for the current filters. */
+  const buildQuery = () => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('limit', String(PAGE_SIZE))
+    if (search) params.set('search', search)
+    if (typeFilter) params.set('type', typeFilter)
+    return params.toString()
+  }
+
   const fetchLocations = async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (typeFilter) params.set('type', typeFilter)
-
-      const response = await fetch(`/api/locations?${params.toString()}`)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to fetch locations')
-      setLocations(data.data || [])
+      const res = await apiFetch<Location[]>(`/api/locations?${buildQuery()}`)
+      if (!res.success) throw new Error(res.error || 'Failed to fetch locations')
+      const rows = res.data || []
+      setLocations(rows)
+      const pg = res.pagination
+      setPagination(pg || { page, limit: PAGE_SIZE, total: rows.length, totalPages: 1 })
+      // If the data shrank and we're past the end, jump to the last page.
+      if (pg && pg.totalPages > 0 && pg.page > pg.totalPages) {
+        setPage(pg.totalPages)
+      }
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load locations')
@@ -74,7 +95,7 @@ export default function LocationsPage() {
   useEffect(() => {
     fetchLocations()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter])
+  }, [search, typeFilter, page])
 
   const createLocation = async (e: FormEvent) => {
     e.preventDefault()
@@ -121,9 +142,34 @@ export default function LocationsPage() {
         title="Locations"
         subtitle="See where your stock lives and how each location is performing."
         action={
-          <button className="button button-primary" onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> Add location
-          </button>
+          <>
+            <CsvExportButton
+              path={`/api/locations?${buildQuery()}`}
+              filename="locations"
+              noun="locations"
+              columns={[
+                { key: 'location', header: 'Location' },
+                { key: 'code', header: 'Code' },
+                { key: 'type', header: 'Type' },
+                { key: 'city', header: 'City' },
+                { key: 'country', header: 'Country' },
+                { key: 'active', header: 'Active' },
+              ]}
+              mapRow={(row) => ({
+                location: row.name,
+                code: row.code,
+                type: locationTypeLabels[row.type] || row.type,
+                city: row.address?.city || '',
+                country: row.address?.country || '',
+                active: row.isActive ? 'Yes' : 'No',
+              })}
+            />
+            {canCreate && (
+              <button className="button button-primary" onClick={() => setShowCreate(true)}>
+                <Plus size={16} /> Add location
+              </button>
+            )}
+          </>
         }
       />
 
@@ -137,11 +183,24 @@ export default function LocationsPage() {
       <section className="panel table-panel" style={{ marginBottom: 18 }}>
         <div className="inventory-toolbar">
           <div className="table-tabs">
-            <button className={typeFilter === '' ? 'selected' : ''} onClick={() => setTypeFilter('')}>
+            <button
+              className={typeFilter === '' ? 'selected' : ''}
+              onClick={() => {
+                setTypeFilter('')
+                setPage(1)
+              }}
+            >
               All types
             </button>
             {['warehouse', 'store', 'distribution_center'].map((t) => (
-              <button key={t} className={typeFilter === t ? 'selected' : ''} onClick={() => setTypeFilter(t)}>
+              <button
+                key={t}
+                className={typeFilter === t ? 'selected' : ''}
+                onClick={() => {
+                  setTypeFilter(t)
+                  setPage(1)
+                }}
+              >
                 {locationTypeLabels[t]}
               </button>
             ))}
@@ -151,7 +210,10 @@ export default function LocationsPage() {
               <Search size={15} />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                }}
                 placeholder="Search locations"
                 aria-label="Search locations"
               />
@@ -215,6 +277,18 @@ export default function LocationsPage() {
             </article>
           ))}
         </div>
+      )}
+
+      {!loading && locations.length > 0 && (
+        <section className="panel" style={{ padding: 0, marginBottom: 18 }}>
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            total={pagination.total}
+            onPage={setPage}
+            noun="locations"
+          />
+        </section>
       )}
 
       {showCreate && (

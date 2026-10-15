@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { signIn } from 'next-auth/react'
@@ -38,6 +38,48 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const [slugTouched, setSlugTouched] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(true)
+
+  // Pre-fill the email field with the address used last time (login only).
+  useEffect(() => {
+    if (mode !== 'login') return
+    try {
+      const saved = localStorage.getItem('ricoz:remembered-email')
+      if (saved) setEmail(saved)
+    } catch {
+      /* storage unavailable — nothing to restore */
+    }
+  }, [mode])
+
+  // Invite flow: /register?invite=… describes the workspace being joined.
+  const [inviteToken, setInviteToken] = useState('')
+  const [inviteInfo, setInviteInfo] = useState<{
+    organizationName: string
+    roleLabel: string
+    emailRequired?: string | null
+  } | null>(null)
+  const [inviteError, setInviteError] = useState('')
+
+  useEffect(() => {
+    if (mode !== 'register') return
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('invite')?.trim()
+    if (!token) return
+    setInviteToken(token)
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/invites/${encodeURIComponent(token)}`)
+        const data = await res.json()
+        if (res.ok && data.data) {
+          setInviteInfo(data.data)
+        } else {
+          setInviteError(data.error || 'This invite link is invalid, expired, or already used.')
+        }
+      } catch {
+        setInviteError('Could not validate the invite link. Try opening it again.')
+      }
+    })()
+  }, [mode])
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -52,6 +94,12 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
           setIsError(true)
           setMessage('Invalid email or password. Please try again.')
         } else {
+          try {
+            if (remember) localStorage.setItem('ricoz:remembered-email', email.trim())
+            else localStorage.removeItem('ricoz:remembered-email')
+          } catch {
+            /* storage unavailable — sign-in still succeeds */
+          }
           setMessage('Signed in. Taking you to your workspace…')
           router.push('/dashboard')
           router.refresh()
@@ -60,13 +108,17 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
         const response = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name,
-            email,
-            password,
-            organizationName: orgName,
-            organizationSlug: orgSlug || slugify(orgName),
-          }),
+          body: JSON.stringify(
+            inviteInfo
+              ? { name, email, password, invite: inviteToken }
+              : {
+                  name,
+                  email,
+                  password,
+                  organizationName: orgName,
+                  organizationSlug: orgSlug || slugify(orgName),
+                }
+          ),
         })
         const data = await response.json()
         if (!response.ok) {
@@ -80,7 +132,7 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
             setMessage('Account created. Please sign in to continue.')
             router.push('/signin')
           } else {
-            setMessage('Workspace created. Taking you to your dashboard…')
+            setMessage(inviteInfo ? 'Joined! Taking you to your dashboard…' : 'Workspace created. Taking you to your dashboard…')
             router.push('/dashboard')
             router.refresh()
           }
@@ -112,24 +164,60 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
               />
             </div>
           </label>
-          <label>
-            Workspace name
-            <div className="field-wrap">
-              <Building2 size={17} />
-              <input
-                required
-                placeholder="e.g. Northstar Retail"
-                autoComplete="organization"
-                value={orgName}
-                onChange={(e) => {
-                  setOrgName(e.target.value)
-                  if (!slugTouched) setOrgSlug(slugify(e.target.value))
-                }}
-                maxLength={100}
-              />
-            </div>
-          </label>
+          {!inviteInfo && (
+            <label>
+              Workspace name
+              <div className="field-wrap">
+                <Building2 size={17} />
+                <input
+                  required
+                  placeholder="e.g. Northstar Retail"
+                  autoComplete="organization"
+                  value={orgName}
+                  onChange={(e) => {
+                    setOrgName(e.target.value)
+                    if (!slugTouched) setOrgSlug(slugify(e.target.value))
+                  }}
+                  maxLength={100}
+                />
+              </div>
+            </label>
+          )}
         </>
+      )}
+
+      {mode === 'register' && inviteError && (
+        <div
+          className="auth-message"
+          role="status"
+          style={{ background: '#fdeef0', borderColor: '#f6d3d9', color: '#a4404f' }}
+        >
+          {inviteError} You can still create a new workspace below.
+        </div>
+      )}
+
+      {mode === 'register' && inviteInfo && (
+        <div
+          style={{
+            border: '1px solid #e6ddff',
+            background: '#f6f2ff',
+            borderRadius: 10,
+            padding: '13px 15px',
+            display: 'grid',
+            gap: 6,
+          }}
+        >
+          <b style={{ fontSize: 12, color: '#4b3f77' }}>
+            Joining {inviteInfo.organizationName}
+          </b>
+          <span style={{ fontSize: 10.5, color: '#7d76a0', lineHeight: 1.65 }}>
+            You&apos;ll join as <b>{inviteInfo.roleLabel}</b> — an admin can change your role later
+            from People.
+            {inviteInfo.emailRequired
+              ? ` Sign up with ${inviteInfo.emailRequired} to use this invite.`
+              : ''}
+          </span>
+        </div>
       )}
 
       <label>
@@ -175,14 +263,25 @@ export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
       {mode === 'login' && (
         <div className="auth-form-meta">
           <label className="remember" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" /> <span>Remember me</span>
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />{' '}
+            <span>Remember my email</span>
           </label>
           <Link href="/forgot-password">Forgot password?</Link>
         </div>
       )}
 
       <button className="button button-primary auth-submit" disabled={busy}>
-        {busy ? 'Please wait…' : mode === 'login' ? 'Sign in to workspace' : 'Create workspace'}{' '}
+        {busy
+          ? 'Please wait…'
+          : mode === 'login'
+            ? 'Sign in to workspace'
+            : inviteInfo
+              ? 'Join workspace'
+              : 'Create workspace'}{' '}
         {!busy && <ArrowRight size={16} />}
       </button>
 

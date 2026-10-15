@@ -3,13 +3,17 @@
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Boxes, ChevronLeft, Package } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { useCan } from '@/hooks/useCan'
+import { Boxes, ChevronLeft, Package, ShieldAlert } from 'lucide-react'
 import { PageHeading } from '@/components/redesign/ui'
 
 const UNIT_OPTIONS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'cm', 'box', 'pack', 'roll', 'other']
 
 export default function NewProductPage() {
   const router = useRouter()
+  const { status } = useSession()
+  const canCreate = useCan('products:create')
   const [form, setForm] = useState({
     name: '',
     sku: '',
@@ -61,6 +65,40 @@ export default function NewProductPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="empty-state" style={{ minHeight: 260 }}>
+        Checking your permissions…
+      </div>
+    )
+  }
+
+  if (!canCreate) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="PERMISSION REQUIRED"
+          title="New product"
+          subtitle="Adding products is limited to admins and inventory managers."
+        />
+        <div
+          className="panel"
+          style={{ padding: 28, display: 'grid', gap: 11, justifyItems: 'center', textAlign: 'center' }}
+        >
+          <ShieldAlert size={26} style={{ color: '#d5556a' }} />
+          <b style={{ fontSize: 13 }}>Your role can&apos;t create products</b>
+          <p style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 400, lineHeight: 1.7, margin: 0 }}>
+            Ask a workspace admin for the Inventory manager role if you need to add catalog items.
+            You can still browse existing products.
+          </p>
+          <Link href="/dashboard/products" className="button button-secondary">
+            Back to products
+          </Link>
+        </div>
+      </>
+    )
   }
 
   return (

@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth/auth'
 import { rejectTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { sendTransferNotification } from '@/lib/transfer-emails'
 import { Types } from 'mongoose'
 
 export async function POST(
@@ -86,6 +87,8 @@ export async function POST(
       resourceId: transfer._id,
       metadata: { reference: transfer.reference, rejectionReason: parsed.data.rejectionReason },
     })
+
+    await sendTransferNotification(transfer._id, 'REJECTED', session.user.id)
 
     return NextResponse.json({ success: true, data: transfer })
   } catch (error) {

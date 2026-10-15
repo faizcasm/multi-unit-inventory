@@ -33,6 +33,108 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ---- Joining an existing workspace via a one-time invite link ----
+    const inviteToken = typeof parsed.data.invite === 'string' ? parsed.data.invite.trim() : ''
+    if (inviteToken) {
+      const crypto = await import('crypto')
+      const tokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex')
+
+      const inviteOrg = (await Organization.findOne({
+        isActive: true,
+        invites: {
+          $elemMatch: { tokenHash, acceptedAt: null, expiresAt: { $gt: new Date() } },
+        },
+      })) as any
+
+      if (!inviteOrg) {
+        return NextResponse.json(
+          { success: false, error: 'This invite link is invalid, expired, or already used.' },
+          { status: 400 }
+        )
+      }
+
+      const invite = inviteOrg.invites.find(
+        (i: any) => i.tokenHash === tokenHash && !i.acceptedAt && i.expiresAt > new Date()
+      )
+      if (!invite) {
+        return NextResponse.json(
+          { success: false, error: 'This invite link is invalid, expired, or already used.' },
+          { status: 400 }
+        )
+      }
+      if (invite.email && invite.email !== email.toLowerCase()) {
+        return NextResponse.json(
+          { success: false, error: 'This invite was issued for a different email address.' },
+          { status: 403 }
+        )
+      }
+
+      // Consume the invite atomically so it can never be used twice.
+      const consumed = await Organization.findOneAndUpdate(
+        { _id: inviteOrg._id, 'invites.tokenHash': tokenHash, 'invites.acceptedAt': null },
+        { $set: { 'invites.$.acceptedAt': new Date() } }
+      )
+      if (!consumed) {
+        return NextResponse.json(
+          { success: false, error: 'This invite link has already been used.' },
+          { status: 400 }
+        )
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12)
+      const joiner = await User.create({
+        email: email.toLowerCase(),
+        passwordHash,
+        name,
+        role: invite.role,
+        isActive: true,
+        preferences: {
+          theme: 'system',
+          notifications: { email: true, inApp: true },
+          dashboardLayout: 'comfortable',
+        },
+      })
+
+      await Membership.create({
+        user: joiner._id,
+        organization: inviteOrg._id,
+        role: invite.role,
+        locationPermissions: [],
+        isActive: true,
+      })
+
+      const ROLE_LABELS: Record<string, string> = {
+        admin: 'Workspace admin',
+        inventory_manager: 'Inventory manager',
+        approver: 'Approver',
+        warehouse_staff: 'Warehouse staff',
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Joined ${inviteOrg.name} as ${ROLE_LABELS[invite.role] || invite.role}.`,
+          data: {
+            joined: true,
+            user: { id: joiner._id.toString(), email: joiner.email, name: joiner.name },
+            organization: { id: inviteOrg._id.toString(), name: inviteOrg.name, slug: inviteOrg.slug },
+          },
+        },
+        { status: 201 }
+      )
+    }
+
+    if (!organizationName || !organizationSlug) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Validation failed',
+          details: { organizationName: ['Workspace name is required'] },
+        },
+        { status: 400 }
+      )
+    }
+
     // Check if organization slug is taken
     const existingOrg = await Organization.findOne({ slug: organizationSlug.toLowerCase() })
     if (existingOrg) {

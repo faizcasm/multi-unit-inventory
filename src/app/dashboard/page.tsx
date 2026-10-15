@@ -30,6 +30,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { PageHeading, Metric, Status } from '@/components/redesign/ui'
+import { useCan } from '@/hooks/useCan'
 
 interface Stats {
   activeProducts: number
@@ -73,6 +74,8 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<RecentTransfer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const canCreateTransfer = useCan('transfers:create')
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -138,9 +141,11 @@ export default function DashboardPage() {
             <button className="button button-secondary" onClick={() => window.location.reload()}>
               <Download size={15} /> Refresh
             </button>
-            <Link href="/dashboard/transfers/new" className="button button-primary">
-              <Plus size={16} /> New transfer
-            </Link>
+            {canCreateTransfer && (
+              <Link href="/dashboard/transfers/new" className="button button-primary">
+                <Plus size={16} /> New transfer
+              </Link>
+            )}
           </>
         }
       />

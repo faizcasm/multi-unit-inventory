@@ -26,6 +26,9 @@ declare module 'next-auth' {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Required behind proxies / custom hosts: Auth.js only trusts localhost in
+  // dev, and Vercel via its own env. Explicitly trust the configured host.
+  trustHost: true,
   providers: [
     Credentials({
       name: 'credentials',

@@ -105,8 +105,11 @@ export const userRegistrationSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password too long'),
   name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or less'),
-  organizationName: z.string().min(1, 'Organization name is required').max(100, 'Name must be 100 characters or less'),
-  organizationSlug: z.string().min(1, 'Organization slug is required').max(50, 'Slug must be 50 characters or less').regex(/^[a-z0-9-]+$/, 'Slug can only contain lowercase letters, numbers, and hyphens'),
+  // Required when creating a new workspace; ignored when joining via an invite link.
+  organizationName: z.string().min(1).max(100, 'Name must be 100 characters or less').optional(),
+  organizationSlug: z.string().min(1).max(50, 'Slug must be 50 characters or less').regex(/^[a-z0-9-]+$/, 'Slug can only contain lowercase letters, numbers, and hyphens').optional(),
+  // One-time invite token from /register?invite=…
+  invite: z.string().min(10).max(300).optional(),
 })
 
 export const userLoginSchema = z.object({

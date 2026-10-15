@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { Metadata } from 'next'
 import { connectDB } from '@/lib/db/mongodb'
 import { Location } from '@/models/Location'
@@ -6,6 +6,8 @@ import { Types } from 'mongoose'
 import Link from 'next/link'
 import { Building2, ChevronLeft, MapPin, Package, Truck, Warehouse } from 'lucide-react'
 import { Status } from '@/components/redesign/ui'
+import { NewTransferTruckButton } from '@/components/redesign/NewTransferButton'
+import { auth } from '@/lib/auth/auth'
 
 interface LocationPageProps {
   params: { id: string }
@@ -14,8 +16,13 @@ interface LocationPageProps {
 export async function generateMetadata({ params }: LocationPageProps): Promise<Metadata> {
   if (!Types.ObjectId.isValid(params.id)) return { title: 'Location Not Found' }
   try {
+    const session = await auth()
+    if (!session?.user) return { title: 'Location Not Found' }
     await connectDB()
-    const location = (await Location.findById(params.id).lean()) as any
+    const location = (await Location.findOne({
+      _id: params.id,
+      organization: session.user.organizationId,
+    }).select('name').lean()) as any
     if (!location) return { title: 'Location Not Found' }
     return { title: `${location?.name} | Location` }
   } catch {
@@ -31,13 +38,19 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export default async function LocationDetailPage({ params }: LocationPageProps) {
+  const session = await auth()
+  if (!session?.user) redirect('/signin')
+
   await connectDB()
 
   if (!Types.ObjectId.isValid(params.id)) {
     notFound()
   }
 
-  const location = (await Location.findById(params.id)
+  const location = (await Location.findOne({
+    _id: params.id,
+    organization: session.user.organizationId,
+  })
     .populate('organization', 'name')
     .lean()) as any
 
@@ -79,9 +92,7 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
           >
             <Package size={15} /> View inventory
           </Link>
-          <Link href="/dashboard/transfers/new" className="button button-primary">
-            <Truck size={15} /> New transfer
-          </Link>
+          <NewTransferTruckButton />
         </div>
       </div>
 

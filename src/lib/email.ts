@@ -7,20 +7,32 @@ type MailOptions = {
   text: string
 }
 
+// Reused across sends: a fresh transport per message pays DNS + TCP +
+// STARTTLS + AUTH every time, which routinely exceeds the send timeout.
+// Pooling keeps a warm connection for subsequent sends.
+let cachedTransport: nodemailer.Transporter | null = null
+
 function getTransport() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD } = process.env
 
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) return null
 
-  return nodemailer.createTransport({
+  if (cachedTransport) return cachedTransport
+
+  cachedTransport = nodemailer.createTransport({
     host: SMTP_HOST,
     port: Number(SMTP_PORT || 587),
     secure: SMTP_SECURE === 'true',
+    pool: true,
+    maxConnections: 2,
+    maxMessages: 100,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASSWORD,
     },
   })
+
+  return cachedTransport
 }
 
 export function isSmtpConfigured(): boolean {

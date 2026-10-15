@@ -2,7 +2,87 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle,
+  Archive,
+  ArrowLeftRight,
+  ArrowLeftRight as Swap,
+  Bell,
+  Boxes,
+  Building2,
+  CheckCircle2,
+  ChevronRight,
+  CircleAlert,
+  Clock,
+  Download,
+  FileText,
+  Gauge,
+  History,
+  LayoutDashboard,
+  LucideIcon,
+  MapPin,
+  MessageSquare,
+  Package,
+  PackageSearch,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+  Truck,
+  UserPlus,
+  Users,
+  Warehouse,
+} from 'lucide-react'
+
+/**
+ * Server Components cannot pass component references (functions) into Client
+ * Components — RSC serialization rejects them. Server pages therefore pass
+ * serializable icon *names*, resolved here against this registry.
+ */
+const ICONS: Record<string, LucideIcon> = {
+  'alert-triangle': AlertTriangle,
+  archive: Archive,
+  'arrow-left-right': ArrowLeftRight,
+  bell: Bell,
+  boxes: Boxes,
+  building: Building2,
+  check: CheckCircle2,
+  chevron: ChevronRight,
+  'circle-alert': CircleAlert,
+  clock: Clock,
+  download: Download,
+  file: FileText,
+  gauge: Gauge,
+  history: History,
+  dashboard: LayoutDashboard,
+  location: MapPin,
+  message: MessageSquare,
+  package: Package,
+  'package-search': PackageSearch,
+  plus: Plus,
+  refresh: RefreshCw,
+  search: Search,
+  settings: Settings2,
+  shield: ShieldCheck,
+  cart: ShoppingCart,
+  store: Store,
+  swap: Swap,
+  truck: Truck,
+  'user-plus': UserPlus,
+  users: Users,
+  warehouse: Warehouse,
+}
+
+/** Accepts either a component (client pages) or a registry name (server pages). */
+type IconProp = LucideIcon | keyof typeof ICONS
+
+function resolveIcon(icon: IconProp): LucideIcon {
+  if (typeof icon === 'string') return ICONS[icon] || Package
+  return icon
+}
 
 export function PageHeading({
   eyebrow,
@@ -31,17 +111,18 @@ export function Metric({
   label,
   value,
   delta,
-  icon: Icon,
+  icon,
   tone = 'purple',
   detail,
 }: {
   label: string
   value: string | number
   delta?: string
-  icon: LucideIcon
+  icon: IconProp
   tone?: 'purple' | 'mint' | 'blue' | 'orange'
   detail?: string
 }) {
+  const Icon = resolveIcon(icon)
   return (
     <div className="metric-card">
       <div className="metric-top">
@@ -145,14 +226,15 @@ export function Toast({ message, onClose }: { message: string; onClose: () => vo
 }
 
 export function EmptyState({
-  icon: Icon,
+  icon,
   title,
   hint,
 }: {
-  icon: LucideIcon
+  icon: IconProp
   title: string
   hint?: string
 }) {
+  const Icon = resolveIcon(icon)
   return (
     <div className="empty-state">
       <Icon size={24} />

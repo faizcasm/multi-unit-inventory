@@ -14,23 +14,30 @@ import {
   ChevronRight,
   CircleHelp,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Menu,
   Moon,
   MoreHorizontal,
   Package,
+  Plus,
+  ScrollText,
   Search,
   Settings,
-  ShieldCheck,
   Sparkles,
   Sun,
   Truck,
+  Users,
   Warehouse,
   X,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
+import { apiFetch } from '@/lib/api'
+import { hasPermission } from '@/lib/permissions/matrix'
+import type { Permission } from '@/lib/permissions/matrix'
+import type { UserRole } from '@/models/User'
 
-type NavItem = { href: string; label: string; icon: React.ElementType; count?: number }
+type NavItem = { href: string; label: string; icon: React.ElementType; permission?: Permission }
 
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
@@ -44,12 +51,16 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   },
   {
     label: 'OPERATIONS',
-    items: [{ href: '/dashboard/locations', label: 'Locations', icon: Warehouse }],
+    items: [
+      { href: '/dashboard/locations', label: 'Locations', icon: Warehouse },
+      { href: '/dashboard/users', label: 'People', icon: Users, permission: 'users:read' },
+    ],
   },
   {
     label: 'INSIGHTS & CONTROL',
     items: [
       { href: '/dashboard/reports', label: 'Reports', icon: Activity },
+      { href: '/dashboard/activity', label: 'Activity', icon: ScrollText, permission: 'audit:read' },
       { href: '/dashboard/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -61,7 +72,9 @@ const titleMap: Record<string, string> = {
   '/dashboard/products': 'Products',
   '/dashboard/transfers': 'Transfers',
   '/dashboard/locations': 'Locations',
+  '/dashboard/users': 'People',
   '/dashboard/reports': 'Reports',
+  '/dashboard/activity': 'Activity',
   '/dashboard/settings': 'Settings',
 }
 
@@ -71,17 +84,114 @@ function getPageTitle(pathname: string): string {
   return titleMap[base] || 'Overview'
 }
 
+/* ------------------------------------------------------------------ */
+/* Notifications (driven by the real audit feed)                       */
+/* ------------------------------------------------------------------ */
+
+type AuditRow = {
+  _id: string
+  action: string
+  resourceType?: string
+  metadata?: Record<string, unknown>
+  createdAt: string
+  user?: { name?: string; email?: string } | null
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  USER_LOGIN: 'Signed in',
+  USER_LOGOUT: 'Signed out',
+  USER_REGISTER: 'New member registered',
+  ORG_CREATE: 'Workspace created',
+  ORG_UPDATE: 'Workspace settings updated',
+  LOCATION_CREATE: 'Location added',
+  LOCATION_UPDATE: 'Location updated',
+  LOCATION_DEACTIVATE: 'Location deactivated',
+  PRODUCT_CREATE: 'Product created',
+  PRODUCT_UPDATE: 'Product updated',
+  PRODUCT_DEACTIVATE: 'Product deactivated',
+  INVENTORY_ADJUST: 'Stock adjusted',
+  TRANSFER_CREATE: 'Transfer draft created',
+  TRANSFER_SUBMIT: 'Transfer submitted for approval',
+  TRANSFER_APPROVE: 'Transfer approved',
+  TRANSFER_REJECT: 'Transfer rejected',
+  TRANSFER_DISPATCH: 'Transfer dispatched',
+  TRANSFER_RECEIVE: 'Transfer received',
+  TRANSFER_CANCEL: 'Transfer cancelled',
+  TRANSFER_COMPLETE: 'Transfer completed',
+  MEMBERSHIP_CREATE: 'Member added',
+  MEMBERSHIP_UPDATE: 'Member updated',
+  MEMBERSHIP_REMOVE: 'Member removed',
+  SETTINGS_UPDATE: 'Settings updated',
+}
+
+const SEEN_KEY = 'ricoz:activity-seen'
+
+function timeAgo(date: string | Date): string {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/* ------------------------------------------------------------------ */
+/* Command palette (⌘K)                                                */
+/* ------------------------------------------------------------------ */
+
+type PResult = { id: string; label: string; sub?: string; icon: React.ElementType; href: string }
+type PEntry = PResult & { permission?: Permission; keys?: string }
+
+const STATIC_ENTRIES: PEntry[] = [
+  { id: 'overview', label: 'Overview', sub: 'Dashboard home', icon: LayoutDashboard, href: '/dashboard' },
+  { id: 'inventory', label: 'Inventory', sub: 'Stock across locations', icon: Package, href: '/dashboard/inventory', keys: 'stock levels availability' },
+  { id: 'products', label: 'Products', sub: 'Catalog & SKUs', icon: Boxes, href: '/dashboard/products', keys: 'sku items catalog' },
+  { id: 'transfers', label: 'Transfers', sub: 'Movements & requests', icon: Truck, href: '/dashboard/transfers', keys: 'shipments requests orders' },
+  { id: 'locations', label: 'Locations', sub: 'Warehouses & stores', icon: Warehouse, href: '/dashboard/locations', keys: 'sites warehouses stores' },
+  { id: 'reports', label: 'Reports', sub: 'Insights & CSV exports', icon: BarChart3, href: '/dashboard/reports', keys: 'export analytics download' },
+  { id: 'settings', label: 'Settings', sub: 'Workspace preferences', icon: Settings, href: '/dashboard/settings', keys: 'theme security notifications' },
+  { id: 'people', label: 'People', sub: 'Members & roles', icon: Users, href: '/dashboard/users', permission: 'users:read', keys: 'team members roles invite' },
+  { id: 'activity', label: 'Activity', sub: 'Audit log of every action', icon: ScrollText, href: '/dashboard/activity', permission: 'audit:read', keys: 'audit history events log' },
+  { id: 'new-transfer', label: 'New transfer', sub: 'Move stock between locations', icon: Truck, href: '/dashboard/transfers/new', permission: 'transfers:create', keys: 'create ship send move' },
+  { id: 'new-product', label: 'New product', sub: 'Add to your catalog', icon: Plus, href: '/dashboard/products/new', permission: 'products:create', keys: 'create add item' },
+  { id: 'adjust-stock', label: 'Adjust stock', sub: 'Record an inventory correction', icon: Package, href: '/dashboard/inventory/adjust', permission: 'inventory:adjust', keys: 'count correction write off' },
+  { id: 'invite', label: 'Invite teammate', sub: 'Share your registration link', icon: Users, href: '/dashboard/users', permission: 'users:create', keys: 'add member email person' },
+]
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { data: session } = useSession()
   const { theme, setTheme } = useTheme()
   const [mobileNav, setMobileNav] = React.useState(false)
-  const [search, setSearch] = React.useState('')
-  const [toast, setToast] = React.useState('')
   const [userMenu, setUserMenu] = React.useState(false)
+  const [workspaceMenu, setWorkspaceMenu] = React.useState(false)
+
+  // Command palette
+  const [paletteOpen, setPaletteOpen] = React.useState(false)
+  const [paletteQuery, setPaletteQuery] = React.useState('')
+  const [remote, setRemote] = React.useState<PResult[]>([])
+  const [searching, setSearching] = React.useState(false)
+  const [activeIdx, setActiveIdx] = React.useState(0)
+
+  // Help center
+  const [helpOpen, setHelpOpen] = React.useState(false)
+
+  // Notifications
+  const [notifOpen, setNotifOpen] = React.useState(false)
+  const [notifItems, setNotifItems] = React.useState<AuditRow[]>([])
+  const [notifLoading, setNotifLoading] = React.useState(false)
+  const [notifError, setNotifError] = React.useState('')
+  const [unread, setUnread] = React.useState(0)
 
   const user = session?.user as any
+  const role: UserRole | undefined = user?.role
+  const can = (p: Permission) => (role ? hasPermission(role, p) : false)
+  const canAudit = can('audit:read')
+
   const name: string = user?.name || 'Team member'
   const initials = name
     .split(' ')
@@ -100,20 +210,186 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           : user?.role === 'warehouse_staff'
             ? 'Warehouse staff'
             : 'Member'
-
-  const notify = (message: string) => {
-    setToast(message)
-    window.setTimeout(() => setToast(''), 3200)
-  }
+  const orgLabel = user?.organizationSlug ? `${user.organizationSlug} workspace` : 'Ricoz workspace'
 
   const pageTitle = getPageTitle(pathname)
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!search.trim()) return
-    router.push(`/dashboard/inventory?search=${encodeURIComponent(search.trim())}`)
+  /* ---------------- keyboard shortcuts ---------------- */
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+        setPaletteQuery('')
+      }
+      if (e.key === 'Escape') {
+        setPaletteOpen(false)
+        setHelpOpen(false)
+        setNotifOpen(false)
+        setUserMenu(false)
+        setWorkspaceMenu(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Close overlays whenever the route changes.
+  React.useEffect(() => {
+    setPaletteOpen(false)
+    setPaletteQuery('')
+    setRemote([])
+    setNotifOpen(false)
+    setUserMenu(false)
+    setWorkspaceMenu(false)
     setMobileNav(false)
+  }, [pathname])
+
+  /* ---------------- notifications ---------------- */
+
+  const loadNotifications = React.useCallback(async (markSeen: boolean) => {
+    setNotifLoading(true)
+    setNotifError('')
+    const res = await apiFetch<AuditRow[]>('/api/audit?limit=8')
+    setNotifLoading(false)
+    if (!res.success) {
+      setNotifError(res.error || 'Could not load notifications')
+      return
+    }
+    const rows = res.data ?? []
+    setNotifItems(rows)
+    if (markSeen) {
+      setUnread(0)
+      const latest = rows.length ? new Date(rows[0].createdAt).getTime() : Date.now()
+      try {
+        localStorage.setItem(SEEN_KEY, String(Math.max(latest, Date.now())))
+      } catch {
+        /* storage unavailable — badge simply stays until next visit */
+      }
+    } else {
+      try {
+        const seen = Number(localStorage.getItem(SEEN_KEY) || 0)
+        setUnread(rows.filter((r) => new Date(r.createdAt).getTime() > seen).length)
+      } catch {
+        setUnread(0)
+      }
+    }
+  }, [])
+
+  // Seed the unread badge once the session (and thus the role) is known.
+  React.useEffect(() => {
+    if (!canAudit) return
+    loadNotifications(false)
+  }, [canAudit, loadNotifications])
+
+  const toggleNotifications = () => {
+    const next = !notifOpen
+    setNotifOpen(next)
+    if (next) loadNotifications(true)
   }
+
+  /* ---------------- command palette ---------------- */
+
+  const openPalette = () => {
+    setPaletteQuery('')
+    setActiveIdx(0)
+    setPaletteOpen(true)
+    setHelpOpen(false)
+  }
+
+  const go = (item: PResult) => {
+    setPaletteOpen(false)
+    setPaletteQuery('')
+    setRemote([])
+    router.push(item.href)
+  }
+
+  // Debounced remote search across products, stock and locations.
+  React.useEffect(() => {
+    if (!paletteOpen) return
+    const q = paletteQuery.trim()
+    if (q.length < 2) {
+      setRemote([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    const timer = window.setTimeout(async () => {
+      const [prodRes, invRes, locRes] = await Promise.all([
+        apiFetch<any[]>(`/api/products?search=${encodeURIComponent(q)}&limit=4`),
+        apiFetch<any[]>(`/api/inventory?search=${encodeURIComponent(q)}&limit=4`),
+        apiFetch<any[]>(`/api/locations?search=${encodeURIComponent(q)}&limit=4`),
+      ])
+      const products: PResult[] = (prodRes.success ? prodRes.data ?? [] : []).map((p: any) => ({
+        id: `prod-${p._id}`,
+        label: p.name || 'Product',
+        sub: `Product · ${p.sku || 'no SKU'}`,
+        icon: Boxes,
+        href: `/dashboard/products/${p._id}`,
+      }))
+      const seen = new Set(products.map((p) => p.id))
+      const stock: PResult[] = (invRes.success ? invRes.data ?? [] : [])
+        .filter((row: any) => row.product?._id && !seen.has(`prod-${row.product._id}`))
+        .map((row: any) => ({
+          id: `prod-${row.product._id}`,
+          label: row.product.name || 'Product',
+          sub: `${row.availableQuantity ?? 0} available at ${row.location?.name ?? 'a location'}`,
+          icon: Package,
+          href: `/dashboard/products/${row.product._id}`,
+        }))
+      const locations: PResult[] = (locRes.success ? locRes.data ?? [] : []).map((l: any) => ({
+        id: `loc-${l._id}`,
+        label: l.name || 'Location',
+        sub: `Location${l.code ? ` · ${l.code}` : ''}`,
+        icon: Warehouse,
+        href: `/dashboard/locations/${l._id}`,
+      }))
+      setRemote([...products, ...stock, ...locations].slice(0, 8))
+      setSearching(false)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [paletteOpen, paletteQuery])
+
+  React.useEffect(() => {
+    setActiveIdx(0)
+  }, [paletteQuery, remote])
+
+  const query = paletteQuery.trim().toLowerCase()
+  const visibleStatic = STATIC_ENTRIES.filter(
+    (entry) =>
+      (!entry.permission || can(entry.permission)) &&
+      (!query || `${entry.label} ${entry.sub ?? ''} ${entry.keys ?? ''}`.toLowerCase().includes(query))
+  )
+  const sections: { title: string; items: PResult[] }[] = []
+  if (visibleStatic.length) {
+    sections.push({ title: query ? 'PAGES & ACTIONS' : 'JUMP TO', items: visibleStatic })
+  }
+  if (remote.length) sections.push({ title: 'MATCHES', items: remote })
+  const flat: PResult[] = sections.flatMap((s) => s.items)
+
+  const onPaletteKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIdx((i) => (flat.length ? (i + 1) % flat.length : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIdx((i) => (flat.length ? (i - 1 + flat.length) % flat.length : 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const item = flat[activeIdx]
+      if (item) go(item)
+    }
+  }
+
+  /* ---------------- render ---------------- */
+
+  let sectionOffset = 0
+  const renderedSections = sections.map((section) => {
+    const start = sectionOffset
+    sectionOffset += section.items.length
+    return { ...section, start }
+  })
 
   const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark')
 
@@ -132,41 +408,99 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </Link>
 
-        <button
-          className="workspace-switch"
-          onClick={() => notify('You belong to one workspace for now.')}
-        >
-          <span className="workspace-logo">{initials || 'R'}</span>
-          <span className="workspace-text">
-            <b>{user?.organizationSlug ? user.organizationSlug : 'Ricoz'} workspace</b>
-            <small>Organization</small>
-          </span>
-          <ChevronDown size={15} />
-        </button>
+        <div style={{ position: 'relative' }}>
+          <button className="workspace-switch" onClick={() => setWorkspaceMenu((v) => !v)}>
+            <span className="workspace-logo">{initials || 'R'}</span>
+            <span className="workspace-text">
+              <b>{orgLabel}</b>
+              <small>{roleLabel}</small>
+            </span>
+            <ChevronDown size={15} />
+          </button>
+          {workspaceMenu && (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+                onClick={() => setWorkspaceMenu(false)}
+              />
+              <div
+                className="panel"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: 'calc(100% + 6px)',
+                  zIndex: 50,
+                  padding: 6,
+                }}
+              >
+                <div style={{ padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <b style={{ fontSize: 11.5, display: 'block' }}>{orgLabel}</b>
+                  <small style={{ fontSize: 9.5, color: 'var(--muted)' }}>
+                    {roleLabel}
+                    {user?.email ? ` · ${user.email}` : ''}
+                  </small>
+                </div>
+                <Link
+                  href="/dashboard/settings"
+                  className="side-link"
+                  style={{ width: '100%', marginTop: 4 }}
+                  onClick={() => setWorkspaceMenu(false)}
+                >
+                  <Settings size={15} />
+                  <span>Workspace settings</span>
+                </Link>
+                {can('users:read') && (
+                  <Link
+                    href="/dashboard/users"
+                    className="side-link"
+                    style={{ width: '100%' }}
+                    onClick={() => setWorkspaceMenu(false)}
+                  >
+                    <Users size={15} />
+                    <span>People &amp; roles</span>
+                  </Link>
+                )}
+                <button
+                  className="side-link"
+                  style={{ width: '100%', color: '#d5556a' }}
+                  onClick={() => signOut({ callbackUrl: '/' })}
+                >
+                  <LogOut size={15} />
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         <nav className="side-nav">
-          {navGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <div className="nav-group-label">{group.label}</div>
-              {group.items.map((item) => {
-                const active =
-                  item.href === '/dashboard'
-                    ? pathname === '/dashboard'
-                    : pathname === item.href || pathname.startsWith(item.href + '/')
-                return (
-                  <Link
-                    href={item.href}
-                    key={item.href}
-                    className={`side-link ${active ? 'active' : ''}`}
-                    onClick={() => setMobileNav(false)}
-                  >
-                    <item.icon size={17} />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          ))}
+          {navGroups.map((group) => {
+            const items = group.items.filter((item) => !item.permission || can(item.permission))
+            if (!items.length) return null
+            return (
+              <div className="nav-group" key={group.label}>
+                <div className="nav-group-label">{group.label}</div>
+                {items.map((item) => {
+                  const active =
+                    item.href === '/dashboard'
+                      ? pathname === '/dashboard'
+                      : pathname === item.href || pathname.startsWith(item.href + '/')
+                  return (
+                    <Link
+                      href={item.href}
+                      key={item.href}
+                      className={`side-link ${active ? 'active' : ''}`}
+                      onClick={() => setMobileNav(false)}
+                    >
+                      <item.icon size={17} />
+                      <span>{item.label}</span>
+                    </Link>
+                  )
+                })}
+              </div>
+            )
+          })}
         </nav>
 
         <div className="sidebar-bottom">
@@ -175,9 +509,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Sparkles size={16} />
             </span>
             <b>Need a hand?</b>
-            <p>Get help setting up your inventory workflow.</p>
-            <button onClick={() => notify('Help center: reach out to your workspace admin.')}>
-              Visit help center <ArrowRight size={13} />
+            <p>Shortcuts, workflow tips and quick links.</p>
+            <button onClick={() => setHelpOpen(true)}>
+              Open help center <ArrowRight size={13} />
             </button>
           </div>
           <button className="profile-row" onClick={() => router.push('/dashboard/settings')}>
@@ -201,21 +535,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={20} />
           </button>
           <div className="breadcrumbs">
-            <span>{user?.organizationSlug ? user.organizationSlug : 'Ricoz'} workspace</span>
+            <span>{orgLabel}</span>
             <ChevronRight size={14} />
             <b>{pageTitle}</b>
           </div>
           <div className="topbar-actions">
-            <form className="global-search" onSubmit={handleSearch}>
+            <button
+              type="button"
+              className="global-search"
+              onClick={openPalette}
+              aria-label="Search (Command K)"
+              style={{ cursor: 'pointer', font: 'inherit', fontSize: 10 }}
+            >
               <Search size={16} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search inventory..."
-                aria-label="Search inventory"
-              />
+              <span style={{ flex: 1, minWidth: 0, textAlign: 'left', fontSize: 10, color: '#aaa5b5' }}>
+                Search products, stock, pages…
+              </span>
               <kbd>⌘ K</kbd>
-            </form>
+            </button>
             <button
               className="icon-button"
               aria-label="Toggle theme"
@@ -227,18 +564,130 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button
               className="icon-button"
               aria-label="Help"
-              onClick={() => notify('Help center: reach out to your workspace admin.')}
+              onClick={() => setHelpOpen(true)}
             >
               <CircleHelp size={18} />
             </button>
-            <button
-              className="icon-button notification-button"
-              aria-label="Notifications"
-              onClick={() => notify('You are all caught up.')}
-            >
-              <Bell size={18} />
-              <i />
-            </button>
+            {canAudit && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="icon-button notification-button"
+                  aria-label="Notifications"
+                  onClick={toggleNotifications}
+                >
+                  <Bell size={18} />
+                  {unread > 0 && <i />}
+                </button>
+                {notifOpen && (
+                  <>
+                    <div
+                      style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+                      onClick={() => setNotifOpen(false)}
+                    />
+                    <div
+                      className="panel"
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: 'calc(100% + 8px)',
+                        zIndex: 50,
+                        width: 320,
+                        padding: 0,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '11px 13px',
+                          borderBottom: '1px solid var(--line)',
+                        }}
+                      >
+                        <b style={{ fontSize: 12 }}>Notifications</b>
+                        <Link
+                          href="/dashboard/activity"
+                          onClick={() => setNotifOpen(false)}
+                          style={{ fontSize: 10, fontWeight: 700, color: '#7c63e3' }}
+                        >
+                          View all
+                        </Link>
+                      </div>
+                      <div style={{ maxHeight: 330, overflowY: 'auto' }}>
+                        {notifLoading ? (
+                          <div style={{ padding: '18px 14px', fontSize: 10.5, color: 'var(--muted)' }}>
+                            Loading recent activity…
+                          </div>
+                        ) : notifError ? (
+                          <div style={{ padding: '16px 14px', display: 'grid', gap: 9 }}>
+                            <span style={{ fontSize: 10.5, color: '#d5556a' }}>{notifError}</span>
+                            <button
+                              className="button"
+                              style={{ justifySelf: 'start' }}
+                              onClick={() => loadNotifications(false)}
+                            >
+                              Retry
+                            </button>
+                          </div>
+                        ) : notifItems.length === 0 ? (
+                          <div className="empty-state" style={{ minHeight: 120 }}>
+                            <Sparkles size={18} />
+                            You&apos;re all caught up.
+                          </div>
+                        ) : (
+                          notifItems.map((n) => (
+                            <button
+                              key={n._id}
+                              onClick={() => {
+                                setNotifOpen(false)
+                                router.push('/dashboard/activity')
+                              }}
+                              style={{
+                                display: 'flex',
+                                gap: 10,
+                                width: '100%',
+                                padding: '10px 13px',
+                                textAlign: 'left',
+                                alignItems: 'flex-start',
+                                borderBottom: '1px solid var(--line)',
+                                background: 'transparent',
+                              }}
+                            >
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <b
+                                  style={{
+                                    fontSize: 11,
+                                    display: 'block',
+                                    color: 'inherit',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {ACTION_LABELS[n.action] || n.action}
+                                </b>
+                                <small style={{ fontSize: 9.5, opacity: 0.65 }}>
+                                  {n.user?.name || 'Someone'} · {timeAgo(n.createdAt)}
+                                </small>
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          borderTop: '1px solid var(--line)',
+                          padding: '9px 13px',
+                          fontSize: 9.5,
+                          opacity: 0.7,
+                        }}
+                      >
+                        Activity is recorded for everyone in your workspace.
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <span className="topbar-divider" />
             <div className="topbar-user-wrap" style={{ position: 'relative' }}>
               <button className="topbar-user" onClick={() => setUserMenu((v) => !v)}>
@@ -279,6 +728,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </button>
                     <button
                       className="side-link"
+                      style={{ width: '100%' }}
+                      onClick={() => {
+                        setUserMenu(false)
+                        setHelpOpen(true)
+                      }}
+                    >
+                      <LifeBuoy size={16} />
+                      <span>Help center</span>
+                    </button>
+                    <button
+                      className="side-link"
                       style={{ width: '100%', color: '#d5556a' }}
                       onClick={() => signOut({ callbackUrl: '/' })}
                     >
@@ -312,13 +772,241 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Close navigation"
         />
       )}
-      {toast && (
-        <div className="toast">
-          <ShieldCheck size={17} />
-          {toast}
-          <button onClick={() => setToast('')} aria-label="Dismiss">
-            <X size={14} />
-          </button>
+
+      {/* ---------------- Command palette ---------------- */}
+      {paletteOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPaletteOpen(false)
+          }}
+        >
+          <div
+            className="create-modal"
+            style={{ width: 'min(620px,100%)', padding: 0, overflow: 'hidden' }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div
+              className="table-search"
+              style={{
+                width: '100%',
+                height: 52,
+                border: 0,
+                borderBottom: '1px solid var(--line)',
+                borderRadius: 0,
+                padding: '0 16px',
+                gap: 11,
+              }}
+            >
+              <Search size={16} />
+              <input
+                autoFocus
+                value={paletteQuery}
+                onChange={(e) => setPaletteQuery(e.target.value)}
+                onKeyDown={onPaletteKey}
+                placeholder="Search products, stock, locations or jump to a page…"
+                aria-label="Global search"
+                style={{ fontSize: 13, color: 'inherit' }}
+              />
+              <kbd
+                style={{
+                  border: '1px solid var(--line)',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  fontSize: 9,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {searching ? '…' : 'Esc'}
+              </kbd>
+            </div>
+            <div style={{ maxHeight: '52vh', overflowY: 'auto', padding: 8 }}>
+              {renderedSections.map((section) => (
+                <div key={section.title} style={{ marginBottom: 4 }}>
+                  <div
+                    style={{
+                      padding: '7px 10px 5px',
+                      fontSize: 9,
+                      fontWeight: 800,
+                      letterSpacing: 1.1,
+                      color: '#aaa5b6',
+                    }}
+                  >
+                    {section.title}
+                  </div>
+                  {section.items.map((item, i) => {
+                    const idx = section.start + i
+                    return (
+                      <button
+                        key={item.id}
+                        className={`side-link ${activeIdx === idx ? 'active' : ''}`}
+                        style={{ width: '100%' }}
+                        onMouseEnter={() => setActiveIdx(idx)}
+                        onClick={() => go(item)}
+                      >
+                        <item.icon size={15} />
+                        <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                          <span style={{ display: 'block' }}>{item.label}</span>
+                          {item.sub && (
+                            <small
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 500,
+                                color: activeIdx === idx ? '#8b76e0' : 'var(--muted)',
+                              }}
+                            >
+                              {item.sub}
+                            </small>
+                          )}
+                        </span>
+                        <ArrowRight size={12} />
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+              {flat.length === 0 && (
+                <div className="empty-state" style={{ minHeight: 130 }}>
+                  <Search size={18} />
+                  {query ? `No matches for “${paletteQuery.trim()}”` : 'Start typing to search'}
+                </div>
+              )}
+            </div>
+            <div
+              style={{
+                borderTop: '1px solid var(--line)',
+                padding: '9px 15px',
+                display: 'flex',
+                gap: 16,
+                fontSize: 9.5,
+                color: 'var(--muted)',
+              }}
+            >
+              <span>
+                <kbd style={{ border: '1px solid var(--line)', borderRadius: 4, padding: '1px 5px', fontSize: 9 }}>↑↓</kbd>{' '}
+                navigate
+              </span>
+              <span>
+                <kbd style={{ border: '1px solid var(--line)', borderRadius: 4, padding: '1px 5px', fontSize: 9 }}>↵</kbd>{' '}
+                open
+              </span>
+              <span>
+                <kbd style={{ border: '1px solid var(--line)', borderRadius: 4, padding: '1px 5px', fontSize: 9 }}>esc</kbd>{' '}
+                close
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Help center ---------------- */}
+      {helpOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setHelpOpen(false)
+          }}
+        >
+          <div
+            className="create-modal"
+            style={{ width: 'min(600px,100%)' }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="modal-heading">
+              <div>
+                <span className="modal-kicker">HELP CENTER</span>
+                <h2>How can we help?</h2>
+                <p>Shortcuts, the transfer workflow and quick links for your workspace.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setHelpOpen(false)}
+                aria-label="Close help"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div className="panel" style={{ padding: 15 }}>
+                <b style={{ fontSize: 11.5 }}>Keyboard shortcuts</b>
+                <div style={{ display: 'grid', gap: 9, marginTop: 11 }}>
+                  {[
+                    ['⌘ K / Ctrl K', 'Open global search'],
+                    ['↑ ↓', 'Move between results'],
+                    ['Enter', 'Open the selected result'],
+                    ['Esc', 'Close any open panel'],
+                  ].map(([keys, desc]) => (
+                    <div
+                      key={keys}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+                    >
+                      <kbd
+                        style={{
+                          border: '1px solid var(--line)',
+                          borderRadius: 5,
+                          padding: '3px 7px',
+                          fontSize: 9.5,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {keys}
+                      </kbd>
+                      <span style={{ fontSize: 10.5, color: 'var(--muted)', textAlign: 'right' }}>{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel" style={{ padding: 15 }}>
+                <b style={{ fontSize: 11.5 }}>The transfer workflow</b>
+                <ol style={{ margin: '11px 0 0', paddingLeft: 18, display: 'grid', gap: 7, fontSize: 10.5, lineHeight: 1.6, color: 'var(--muted)' }}>
+                  <li>Add products and adjust stock into a source location.</li>
+                  <li>Create a transfer and submit it for approval.</li>
+                  <li>An approver reviews quantities and approves or rejects.</li>
+                  <li>Dispatch the shipment, then receive it at the destination.</li>
+                  <li>Report any discrepancies during receiving.</li>
+                  <li>Track everything in Reports and the Activity log.</li>
+                </ol>
+              </div>
+
+              <div className="panel" style={{ padding: 15 }}>
+                <b style={{ fontSize: 11.5 }}>Quick links</b>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 11 }}>
+                  {[
+                    { label: 'Reports', href: '/dashboard/reports', show: true },
+                    { label: 'Activity log', href: '/dashboard/activity', show: canAudit },
+                    { label: 'People & roles', href: '/dashboard/users', show: can('users:read') },
+                    { label: 'Public site', href: '/', show: true },
+                  ]
+                    .filter((l) => l.show)
+                    .map((l) => (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        className="button"
+                        onClick={() => setHelpOpen(false)}
+                        style={{ fontSize: 10.5 }}
+                      >
+                        {l.label}
+                      </Link>
+                    ))}
+                </div>
+              </div>
+
+              <p className="modal-footnote">
+                <LifeBuoy size={13} />
+                Still stuck? Your workspace admin manages access, roles and integrations — reach out
+                to them for changes beyond your permissions.
+              </p>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="button" onClick={() => setHelpOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

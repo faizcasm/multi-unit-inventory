@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth/auth'
 import { cancelTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { sendTransferNotification } from '@/lib/transfer-emails'
 import { Types } from 'mongoose'
 
 export async function POST(
@@ -205,6 +206,8 @@ export async function POST(
           metadata: { reference: transfer.reference, cancellationReason: parsed.data.cancellationReason },
         })
 
+        await sendTransferNotification(transfer._id, 'CANCELLED', session.user.id)
+
         return NextResponse.json({ success: true, data: transfer })
       } catch (error) {
         await mongoSession.abortTransaction()
@@ -235,6 +238,8 @@ export async function POST(
         resourceId: transfer._id,
         metadata: { reference: transfer.reference, cancellationReason: parsed.data.cancellationReason },
       })
+
+      await sendTransferNotification(transfer._id, 'CANCELLED', session.user.id)
 
       return NextResponse.json({ success: true, data: transfer })
     }
