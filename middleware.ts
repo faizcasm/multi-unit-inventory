@@ -1,8 +1,9 @@
 import { auth } from './src/lib/auth/auth'
 import { NextResponse } from 'next/server'
 
-export default auth((req) => {
-  const isLoggedIn = !!req.auth
+export default auth(async (req) => {
+  let isLoggedIn = false
+  try { isLoggedIn = !!req.auth } catch { isLoggedIn = false }
   const path = req.nextUrl.pathname
   const isDashboardRoute = path.startsWith('/dashboard')
   const isApiRoute = path.startsWith('/api')
