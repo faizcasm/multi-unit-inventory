@@ -63,7 +63,7 @@ export default function ProductsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Products</h1>
           <p className="text-muted-foreground">Manage your product catalog</p>
         </div>
-        <Link href="/products/new">
+        <Link href="/dashboard/products/new">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
             New Product
@@ -135,7 +135,7 @@ export default function ProductsPage() {
               <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="font-semibold text-lg mb-2">No products found</h3>
               <p className="text-muted-foreground mb-4">Get started by creating your first product.</p>
-              <Link href="/products/new">
+              <Link href="/dashboard/products/new">
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
                   Create Product
@@ -151,7 +151,7 @@ export default function ProductsPage() {
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <Link href={`/products/${product._id}`} className="font-semibold text-lg hover:text-primary transition-colors">
+                    <Link href={`/dashboard/products/${product._id}`} className="font-semibold text-lg hover:text-primary transition-colors">
                       {product.name}
                     </Link>
                     <p className="text-muted-foreground text-sm font-mono">{product.sku}</p>
@@ -189,7 +189,7 @@ export default function ProductsPage() {
                 </div>
 
                 <div className="mt-3 pt-3 border-t">
-                  <Link href={`/products/${product._id}`}>
+                  <Link href={`/dashboard/products/${product._id}`}>
                     <Button variant="ghost" size="sm" className="w-full">View Details</Button>
                   </Link>
                 </div>

@@ -78,7 +78,7 @@ export default function LocationsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Locations</h1>
           <p className="text-muted-foreground">Manage your warehouses, stores, and distribution centers</p>
         </div>
-        <Link href="/locations/new">
+        <Link href="/dashboard/locations/new">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
             New Location
@@ -151,7 +151,7 @@ export default function LocationsPage() {
               <Warehouse className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="font-semibold text-lg mb-2">No locations found</h3>
               <p className="text-muted-foreground mb-4">Get started by creating your first location.</p>
-              <Link href="/locations/new">
+              <Link href="/dashboard/locations/new">
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
                   Create Location
@@ -167,7 +167,7 @@ export default function LocationsPage() {
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <Link href={`/locations/${location._id}`} className="font-semibold text-lg hover:text-primary transition-colors">
+                    <Link href={`/dashboard/locations/${location._id}`} className="font-semibold text-lg hover:text-primary transition-colors">
                       {location.name}
                     </Link>
                     <p className="text-muted-foreground text-sm">{location.code}</p>
@@ -211,7 +211,7 @@ export default function LocationsPage() {
                   <Badge variant={location.isActive ? 'success' : 'secondary'}>
                     {location.isActive ? 'Active' : 'Inactive'}
                   </Badge>
-                  <Link href={`/locations/${location._id}`}>
+                  <Link href={`/dashboard/locations/${location._id}`}>
                     <Button variant="ghost" size="sm">View Details</Button>
                   </Link>
                 </div>

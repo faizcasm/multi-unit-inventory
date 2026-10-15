@@ -38,7 +38,7 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/locations">
+        <Link href="/dashboard/locations">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -92,13 +92,13 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
       </Card>
 
       <div className="flex gap-4">
-        <Link href={`/locations/${params.id}/inventory`}>
+        <Link href={`/dashboard/locations/${params.id}/inventory`}>
           <Button variant="outline" className="gap-2">
             <Package className="h-4 w-4" />
             View Inventory
           </Button>
         </Link>
-        <Link href={`/locations/${params.id}/transfers`}>
+        <Link href={`/dashboard/locations/${params.id}/transfers`}>
           <Button variant="outline" className="gap-2">
             <Warehouse className="h-4 w-4" />
             View Transfers

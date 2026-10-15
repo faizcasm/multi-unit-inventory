@@ -74,7 +74,7 @@ export default function InventoryPage() {
           <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
           <p className="text-muted-foreground">Track stock levels across all locations</p>
         </div>
-        <Link href="/inventory/adjust">
+        <Link href="/dashboard/inventory/adjust">
           <Button className="gap-2">
             Adjust Stock
           </Button>

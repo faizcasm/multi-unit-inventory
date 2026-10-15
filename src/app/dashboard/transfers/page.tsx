@@ -77,7 +77,7 @@ export default function TransfersPage() {
           <h1 className="text-3xl font-bold tracking-tight">Transfers</h1>
           <p className="text-muted-foreground">Manage inventory transfers between locations</p>
         </div>
-        <Link href="/transfers/new">
+        <Link href="/dashboard/transfers/new">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
             New Transfer
@@ -134,7 +134,7 @@ export default function TransfersPage() {
               <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="font-semibold text-lg mb-2">No transfers found</h3>
               <p className="text-muted-foreground mb-4">Create your first transfer to get started.</p>
-              <Link href="/transfers/new">
+              <Link href="/dashboard/transfers/new">
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
                   Create Transfer
@@ -183,7 +183,7 @@ export default function TransfersPage() {
                       {new Date(transfer.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <Link href={`/transfers/${transfer._id}`}>
+                      <Link href={`/dashboard/transfers/${transfer._id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
                     </TableCell>
