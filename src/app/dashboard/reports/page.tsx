@@ -1,76 +1,76 @@
 'use client'
 
-import { useState } from 'react'
-import { Download, FileText, Package, Truck, AlertTriangle, BarChart3 } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Select } from '@/components/ui/Select'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
-import { Input } from '@/components/ui/Input'
-import { Label } from '@/components/ui/Label'
-// import { toast } from 'react-hot-toast'
+import { useEffect, useState } from 'react'
+import { AlertCircle, CalendarDays, Download, FileText, Search } from 'lucide-react'
+import { PageHeading, EmptyState, Toast } from '@/components/redesign/ui'
 
 const reportTypes = [
-  { value: 'stock', label: 'Current Stock by Location' },
-  { value: 'low-stock', label: 'Low Stock Products' },
-  { value: 'transfers', label: 'Transfer History' },
-  { value: 'discrepancies', label: 'Transfer Discrepancies' },
-  { value: 'movements', label: 'Inventory Movement History' },
+  { value: 'stock', label: 'Current stock by location' },
+  { value: 'low-stock', label: 'Low stock products' },
+  { value: 'transfers', label: 'Transfer history' },
+  { value: 'discrepancies', label: 'Transfer discrepancies' },
+  { value: 'movements', label: 'Inventory movement history' },
 ]
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState('stock')
   const [format, setFormat] = useState('json')
   const [locationId, setLocationId] = useState('')
+  const [locations, setLocations] = useState<{ _id: string; name: string; code: string }[]>([])
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(false)
   const [reportData, setReportData] = useState<any[]>([])
+  const [error, setError] = useState('')
+  const [toast, setToast] = useState('')
+
+  const notify = (msg: string) => {
+    setToast(msg)
+    window.setTimeout(() => setToast(''), 3200)
+  }
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const response = await fetch('/api/locations')
+        const data = await response.json()
+        if (response.ok) setLocations(data.data || [])
+      } catch {}
+    })()
+  }, [])
+
+  const buildParams = (fmt: string) => {
+    const params = new URLSearchParams()
+    params.set('type', reportType)
+    params.set('format', fmt)
+    if (locationId) params.set('locationId', locationId)
+    if (dateFrom) params.set('dateFrom', dateFrom)
+    if (dateTo) params.set('dateTo', dateTo)
+    return params
+  }
 
   const generateReport = async () => {
     setLoading(true)
+    setError('')
     try {
-      const params = new URLSearchParams()
-      params.set('type', reportType)
-      params.set('format', format)
-      if (locationId) params.set('locationId', locationId)
-      if (dateFrom) params.set('dateFrom', dateFrom)
-      if (dateTo) params.set('dateTo', dateTo)
-
-      const response = await fetch(`/api/reports?${params.toString()}`)
-      
-      if (format === 'csv') {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${reportType}-report-${new Date().toISOString().split('T')[0]}.csv`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-      } else {
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Failed to generate report')
-        setReportData(data.data || [])
-      }
+      const response = await fetch(`/api/reports?${buildParams('json').toString()}`)
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to generate report')
+      setReportData(data.data || [])
+      notify(`Report ready — ${(data.data || []).length} records`)
     } catch (err) {
-      console.error('Report generation error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to generate report')
     } finally {
       setLoading(false)
     }
   }
 
   const exportCsv = async () => {
-    const params = new URLSearchParams()
-    params.set('type', reportType)
-    params.set('format', 'csv')
-    if (locationId) params.set('locationId', locationId)
-    if (dateFrom) params.set('dateFrom', dateFrom)
-    if (dateTo) params.set('dateTo', dateTo)
-
     setLoading(true)
+    setError('')
     try {
-      const response = await fetch(`/api/reports?${params.toString()}`)
+      const response = await fetch(`/api/reports?${buildParams('csv').toString()}`)
+      if (!response.ok) throw new Error('CSV export failed')
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -80,128 +80,170 @@ export default function ReportsPage() {
       a.click()
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
+      notify('CSV downloaded')
     } catch (err) {
-      console.error('CSV export error:', err)
+      setError(err instanceof Error ? err.message : 'CSV export failed')
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Reports & Exports</h1>
-        <p className="text-muted-foreground">Generate reports and export data</p>
-      </div>
+  const keys = reportData.length > 0 ? Object.keys(reportData[0]) : []
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Report Configuration</CardTitle>
-          <CardDescription>Select report type and filters</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <Label>Report Type</Label>
-              <Select
+  return (
+    <>
+      <PageHeading
+        eyebrow="REPORTING & INSIGHTS"
+        title="Reports"
+        subtitle="Generate operational reports and export them for your records."
+        action={
+          <button className="button button-secondary" onClick={exportCsv} disabled={loading}>
+            <Download size={15} /> Export CSV
+          </button>
+        }
+      />
+
+      <section className="panel" style={{ padding: 22, marginBottom: 18 }}>
+        <div className="settings-panel-heading">
+          <div>
+            <h2>Report configuration</h2>
+            <p>Select a report type, optional filters, then generate or export.</p>
+          </div>
+        </div>
+
+        <div className="modal-route-grid" style={{ marginBottom: 16 }}>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            Report type
+            <div className="field-wrap">
+              <FileText size={16} />
+              <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
-                options={reportTypes}
-                className="mt-1"
-              />
+                style={{ border: 0, outline: 0, width: '100%', background: 'transparent', color: 'var(--ink)' }}
+              >
+                {reportTypes.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <Label>Format</Label>
-              <Select
-                value={format}
-                onChange={(e) => setFormat(e.target.value)}
-                options={[
-                  { value: 'json', label: 'JSON' },
-                  { value: 'csv', label: 'CSV' },
-                ]}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>Location</Label>
-              <Input
-                placeholder="Location ID (optional)"
+          </label>
+          <span className="modal-route-icon" aria-hidden>
+            /
+          </span>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            Location
+            <div className="field-wrap">
+              <Search size={16} />
+              <select
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
-                className="mt-1"
-              />
+                style={{ border: 0, outline: 0, width: '100%', background: 'transparent', color: 'var(--ink)' }}
+              >
+                <option value="">All locations</option>
+                {locations.map((l) => (
+                  <option key={l._id} value={l._id}>
+                    {l.name} ({l.code})
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <Label>From Date</Label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>To Date</Label>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div className="flex items-end gap-2">
-              <Button onClick={generateReport} loading={loading} className="flex-1">
-                Generate Report
-              </Button>
-              <Button onClick={exportCsv} variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                CSV
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </label>
+        </div>
 
-      {reportData.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Report Results</CardTitle>
-            <CardDescription>{reportData.length} records found</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    {Object.keys(reportData[0] || {}).map((key) => (
-                      <th key={key} className="text-left p-3 font-medium capitalize">
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportData.slice(0, 50).map((row, i) => (
-                    <tr key={i} className="border-b hover:bg-muted/50">
-                      {Object.values(row).map((val: any, j) => (
-                        <td key={j} className="p-3">
-                          {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '-')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {reportData.length > 50 && (
-                <p className="text-center text-muted-foreground py-3 text-sm">
-                  Showing first 50 of {reportData.length} records
-                </p>
-              )}
+        <div className="modal-route-grid" style={{ marginBottom: 16 }}>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            From date
+            <div className="field-wrap">
+              <CalendarDays size={16} />
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          </label>
+          <span className="modal-route-icon" aria-hidden>
+            →
+          </span>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            To date
+            <div className="field-wrap">
+              <CalendarDays size={16} />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
+          </label>
+        </div>
+
+        <div className="modal-actions">
+          <button className="button button-secondary" onClick={exportCsv} disabled={loading}>
+            <Download size={15} /> Download CSV
+          </button>
+          <button className="button button-primary" onClick={generateReport} disabled={loading}>
+            {loading ? 'Generating…' : 'Generate report'}
+          </button>
+        </div>
+
+        {error && (
+          <div className="data-disclaimer">
+            <AlertCircle size={14} /> {error}
+          </div>
+        )}
+      </section>
+
+      <section className="panel table-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Report results</h2>
+            <p>{reportData.length > 0 ? `${reportData.length} records found` : 'Run a report to see results here'}</p>
+          </div>
+          {reportData.length > 0 && (
+            <button className="subtle-link" onClick={exportCsv}>
+              <Download size={14} /> Export
+            </button>
+          )}
+        </div>
+
+        {reportData.length === 0 ? (
+          <EmptyState icon={FileText} title="No report generated yet" hint="Choose a report type and press Generate." />
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {keys.map((key) => (
+                    <th key={key}>{key.replace(/([A-Z])/g, ' $1').trim()}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {reportData.slice(0, 50).map((row, i) => (
+                  <tr key={i}>
+                    {keys.map((key, j) => {
+                      const val = row[key]
+                      return (
+                        <td key={j}>
+                          {typeof val === 'object' && val !== null
+                            ? JSON.stringify(val)
+                            : String(val ?? '-')}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {reportData.length > 50 && (
+          <div className="table-footer">
+            <span>
+              Showing first <b>50</b> of {reportData.length} records
+            </span>
+            <span>Export CSV for the full set</span>
+          </div>
+        )}
+      </section>
+
+      <Toast message={toast} onClose={() => setToast('')} />
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

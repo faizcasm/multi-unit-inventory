@@ -1,16 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Search, Package, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
-import { Card, CardContent } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { cn } from '@/lib/utils/helpers'
+import { Package, Search, SlidersHorizontal, AlertCircle, Plus } from 'lucide-react'
+import { PageHeading, Status, EmptyState } from '@/components/redesign/ui'
 
 interface InventoryItem {
   _id: string
@@ -22,13 +15,14 @@ interface InventoryItem {
   damagedQuantity: number
 }
 
+type Tab = 'All items' | 'Low stock' | 'Out of stock'
+
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [search, setSearch] = useState('')
   const [locationId, setLocationId] = useState('')
   const [locations, setLocations] = useState<{ _id: string; name: string; code: string }[]>([])
-  const [lowStock, setLowStock] = useState(false)
-  const [outOfStock, setOutOfStock] = useState(false)
+  const [tab, setTab] = useState<Tab>('All items')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -49,13 +43,14 @@ export default function InventoryPage() {
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (locationId) params.set('locationId', locationId)
-      if (lowStock) params.set('lowStock', 'true')
-      if (outOfStock) params.set('outOfStock', 'true')
+      if (tab === 'Low stock') params.set('lowStock', 'true')
+      if (tab === 'Out of stock') params.set('outOfStock', 'true')
 
       const response = await fetch(`/api/inventory?${params.toString()}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to fetch inventory')
       setInventory(data.data || [])
+      setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load inventory')
     } finally {
@@ -65,128 +60,149 @@ export default function InventoryPage() {
 
   useEffect(() => {
     fetchInventory()
-  }, [search, locationId, lowStock, outOfStock])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, locationId, tab])
+
+  const statusOf = (item: InventoryItem): string => {
+    if (item.availableQuantity === 0) return 'Out of stock'
+    if (
+      item.product &&
+      item.product.reorderThreshold > 0 &&
+      item.availableQuantity <= item.product.reorderThreshold
+    )
+      return 'Low stock'
+    return 'In stock'
+  }
+
+  const allCount = inventory.length
+  const lowCount = inventory.filter((i) => statusOf(i) === 'Low stock').length
+  const outCount = inventory.filter((i) => statusOf(i) === 'Out of stock').length
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-          <p className="text-muted-foreground">Track stock levels across all locations</p>
-        </div>
-        <Link href="/dashboard/inventory/adjust">
-          <Button className="gap-2">
-            Adjust Stock
-          </Button>
-        </Link>
-      </div>
+    <>
+      <PageHeading
+        eyebrow="STOCK CONTROL"
+        title="Inventory"
+        subtitle="Keep product availability and stock levels clear across every location."
+        action={
+          <>
+            <Link href="/dashboard/inventory/adjust" className="button button-secondary">
+              <SlidersHorizontal size={15} /> Adjust stock
+            </Link>
+            <Link href="/dashboard/products/new" className="button button-primary">
+              <Plus size={16} /> New product
+            </Link>
+          </>
+        }
+      />
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Search by product or SKU..."
+      <section className="panel table-panel inventory-table-panel">
+        <div className="inventory-toolbar">
+          <div className="table-tabs">
+            {(['All items', 'Low stock', 'Out of stock'] as Tab[]).map((t) => (
+              <button key={t} className={tab === t ? 'selected' : ''} onClick={() => setTab(t)}>
+                {t}
+                {t === 'Low stock' && <span className="tab-count">{lowCount}</span>}
+                {t === 'Out of stock' && <span className="tab-count">{outCount}</span>}
+              </button>
+            ))}
+          </div>
+          <div className="table-tools">
+            <label className="table-search">
+              <Search size={15} />
+              <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                icon={<Search className="h-4 w-4 text-muted-foreground" />}
+                placeholder="Search products"
+                aria-label="Search products"
               />
-            </div>
-            <Select
-              placeholder="All Locations"
+            </label>
+            <select
+              className="filter-button"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              options={[{ value: '', label: 'All Locations' }, ...locations.map((l) => ({ value: l._id, label: `${l.name} (${l.code})` }))]}
-            />
-            <div className="flex gap-2">
-              <Button
-                variant={lowStock ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setLowStock(!lowStock)}
-              >
-                Low Stock
-              </Button>
-              <Button
-                variant={outOfStock ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setOutOfStock(!outOfStock)}
-              >
-                Out of Stock
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <div className="p-4 rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
-          {error}
-        </div>
-      )}
-
-      <Card>
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="space-y-4">
-              {[...Array(8)].map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+              aria-label="Filter by location"
+              style={{ height: 34 }}
+            >
+              <option value="">All locations</option>
+              {locations.map((l) => (
+                <option key={l._id} value={l._id}>
+                  {l.name} ({l.code})
+                </option>
               ))}
-            </div>
+            </select>
+          </div>
+        </div>
+
+        {error && (
+          <div className="data-disclaimer" style={{ padding: '0 20px' }}>
+            <AlertCircle size={14} /> {error}
+          </div>
+        )}
+
+        <div className="table-scroll">
+          {loading ? (
+            <div className="empty-state">Loading inventory…</div>
           ) : inventory.length === 0 ? (
-            <div className="text-center py-12">
-              <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-semibold text-lg mb-2">No inventory found</h3>
-              <p className="text-muted-foreground">Try adjusting your filters.</p>
-            </div>
+            <EmptyState icon={Package} title="No inventory matches this view" hint="Try a different search or stock filter." />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead className="text-right">Available</TableHead>
-                  <TableHead className="text-right">Reserved</TableHead>
-                  <TableHead className="text-right">In Transit</TableHead>
-                  <TableHead className="text-right">Damaged</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Location</th>
+                  <th>Available</th>
+                  <th>Reserved</th>
+                  <th>In transit</th>
+                  <th>Damaged</th>
+                  <th>Stock status</th>
+                </tr>
+              </thead>
+              <tbody>
                 {inventory.map((item) => (
-                  <TableRow key={item._id}>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{item.product?.name}</div>
-                        <div className="text-xs text-muted-foreground">{item.product?.sku}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{item.location?.name}</div>
-                        <div className="text-xs text-muted-foreground">{item.location?.code}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{item.availableQuantity}</TableCell>
-                    <TableCell className="text-right">{item.reservedQuantity}</TableCell>
-                    <TableCell className="text-right">{item.inTransitQuantity}</TableCell>
-                    <TableCell className="text-right text-destructive">{item.damagedQuantity}</TableCell>
-                    <TableCell>
-                      {item.availableQuantity === 0 ? (
-                        <Badge variant="destructive">Out of Stock</Badge>
-                      ) : item.product && item.availableQuantity <= item.product.reorderThreshold && item.product.reorderThreshold > 0 ? (
-                        <Badge variant="warning">Low Stock</Badge>
-                      ) : (
-                        <Badge variant="success">In Stock</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                  <tr key={item._id}>
+                    <td>
+                      <span className="product-cell">
+                        <span className="product-thumbnail">
+                          <Package size={17} />
+                        </span>
+                        <span>
+                          <b>{item.product?.name || 'Unnamed product'}</b>
+                          <small>{item.product?.sku}</small>
+                        </span>
+                      </span>
+                    </td>
+                    <td>
+                      <span className="table-location">{item.location?.name}</span>
+                    </td>
+                    <td>
+                      <b className="stock-number">{item.availableQuantity}</b>
+                      <small className="stock-reorder">
+                        {' '}
+                        Reorder at {item.product?.reorderThreshold ?? 0}
+                      </small>
+                    </td>
+                    <td className="value-cell">{item.reservedQuantity}</td>
+                    <td className="value-cell">{item.inTransitQuantity}</td>
+                    <td className="value-cell">{item.damagedQuantity}</td>
+                    <td>
+                      <Status value={statusOf(item)} />
+                    </td>
+                  </tr>
                 ))}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+        {!loading && inventory.length > 0 && (
+          <div className="table-footer">
+            <span>
+              Showing <b>{inventory.length}</b> stock records
+            </span>
+          </div>
+        )}
+      </section>
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

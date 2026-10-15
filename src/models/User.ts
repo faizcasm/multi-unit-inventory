@@ -12,6 +12,8 @@ export interface IUser extends Document {
   isActive: boolean
   emailVerified: Date | null
   lastLoginAt: Date | null
+  passwordResetToken?: string | null
+  passwordResetExpires?: Date | null
   preferences: {
     theme: 'light' | 'dark' | 'system'
     notifications: {
@@ -35,6 +37,8 @@ const UserSchema = new Schema<IUser>(
     isActive: { type: Boolean, default: true },
     emailVerified: { type: Date },
     lastLoginAt: { type: Date },
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
     preferences: {
       theme: { type: String, enum: ['light', 'dark', 'system'], default: 'system' },
       notifications: {

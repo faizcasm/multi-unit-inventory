@@ -1,126 +1,80 @@
-'use client'
-
-import * as React from 'react'
-import { useState } from 'react'
-import { Suspense } from 'react'
 import Link from 'next/link'
-import { signIn } from 'next-auth/react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { Package, Mail, Lock, AlertCircle } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
-import { cn } from '@/lib/utils/helpers'
+import { ArrowLeft, ArrowRight, Boxes, LockKeyhole, ShieldCheck } from 'lucide-react'
+import AuthForm from '@/components/auth/AuthForm'
 
 export const dynamic = 'force-dynamic'
 
-function SignInForm() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
-  const error = searchParams.get('error')
-
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [formError, setFormError] = useState('')
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormError('')
-    setIsLoading(true)
-
-    try {
-      const result = await signIn('credentials', {
-        email,
-        password,
-        redirect: false,
-      })
-
-      if (result?.error) {
-        setFormError('Invalid email or password')
-      } else {
-        router.push(callbackUrl)
-        router.refresh()
-      }
-    } catch (err) {
-      setFormError('An error occurred. Please try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  return (
-    <div>
-      <Card>
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Package className="h-7 w-7 text-primary" />
-          </div>
-          <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your organization</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {(error || formError) && (
-            <div className={cn('mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-center gap-2 text-sm text-destructive')}>
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{formError || 'Authentication failed. Please try again.'}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              label="Email"
-              type="email"
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              icon={<Mail className="h-4 w-4" />}
-            />
-            <Input
-              label="Password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              icon={<Lock className="h-4 w-4" />}
-            />
-
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" className="rounded border-input" />
-                Remember me
-              </label>
-              <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">
-                Forgot password?
-              </Link>
-            </div>
-
-            <Button type="submit" className="w-full" size="lg" loading={isLoading}>
-              Sign In
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
-            <Link href="/register" className="text-primary font-medium hover:underline">
-              Create one
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
+export const metadata = {
+  title: 'Sign in',
 }
 
-export default function SignInPage() {
+export default function LoginPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SignInForm />
-    </Suspense>
+    <main className="auth-page">
+      <section className="auth-side">
+        <Link href="/" className="brand">
+          <span className="brand-mark">
+            <Boxes size={20} />
+          </span>
+          <span>
+            ricoz<span className="brand-light"> inventory</span>
+          </span>
+        </Link>
+        <div className="auth-side-content">
+          <div className="eyebrow">A CLEARER VIEW OF STOCK</div>
+          <h1>
+            Bring every
+            <br />
+            location <span>together.</span>
+          </h1>
+          <p>
+            One workspace for inventory visibility, accountable transfers, and calmer day-to-day
+            operations.
+          </p>
+          <div className="auth-side-points">
+            <span>
+              <ShieldCheck size={17} /> Role-aware workflows
+            </span>
+            <span>
+              <LockKeyhole size={17} /> Secure access
+            </span>
+          </div>
+        </div>
+        <div className="auth-side-bottom">
+          <span>Designed for teams on the move.</span>
+          <span>© 2026 Ricoz Inventory</span>
+        </div>
+        <div className="auth-deco deco-one" />
+        <div className="auth-deco deco-two" />
+      </section>
+      <section className="auth-main">
+        <Link href="/" className="auth-back">
+          <ArrowLeft size={15} /> Back to home
+        </Link>
+        <div className="auth-card">
+          <div className="auth-mobile-brand">
+            <span className="brand-mark">
+              <Boxes size={20} />
+            </span>
+            <b>ricoz inventory</b>
+          </div>
+          <div className="auth-heading">
+            <span className="auth-kicker">WELCOME BACK</span>
+            <h2>Sign in to your workspace</h2>
+            <p>Pick up where your team left off.</p>
+          </div>
+          <AuthForm mode="login" />
+          <div className="auth-switch">
+            New to Ricoz?{' '}
+            <Link href="/register">
+              Create an account <ArrowRight size={14} />
+            </Link>
+          </div>
+          <div className="auth-legal">
+            By continuing, you agree to the terms and privacy policy for your workspace.
+          </div>
+        </div>
+      </section>
+    </main>
   )
 }

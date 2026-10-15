@@ -1,15 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Plus, Search, Filter, MoreVertical, Warehouse, MapPin, Package, CheckCircle, XCircle } from 'lucide-react'
+import { useEffect, useState, FormEvent } from 'react'
 import Link from 'next/link'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { cn } from '@/lib/utils/helpers'
+import {
+  Warehouse,
+  Plus,
+  Search,
+  Building2,
+  ArrowRight,
+  AlertCircle,
+  X,
+} from 'lucide-react'
+import { PageHeading, Metric, Status, EmptyState } from '@/components/redesign/ui'
 
 interface Location {
   _id: string
@@ -27,26 +29,28 @@ interface Location {
 
 const locationTypeLabels: Record<string, string> = {
   warehouse: 'Warehouse',
-  store: 'Store',
-  distribution_center: 'Distribution Center',
+  store: 'Retail store',
+  distribution_center: 'Distribution center',
   other: 'Other',
 }
 
-const locationTypeColors: Record<string, string> = {
-  warehouse: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  store: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-  distribution_center: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-  other: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
-}
+const TYPE_COLORS = ['lavender', 'mint', 'peach', 'blue']
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([])
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+
+  // create form
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [type, setType] = useState('warehouse')
+  const [city, setCity] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
 
   const fetchLocations = async () => {
     setLoading(true)
@@ -54,12 +58,12 @@ export default function LocationsPage() {
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (typeFilter) params.set('type', typeFilter)
-      if (statusFilter) params.set('isActive', statusFilter === 'active' ? 'true' : 'false')
 
       const response = await fetch(`/api/locations?${params.toString()}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to fetch locations')
       setLocations(data.data || [])
+      setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load locations')
     } finally {
@@ -69,158 +73,253 @@ export default function LocationsPage() {
 
   useEffect(() => {
     fetchLocations()
-  }, [search, typeFilter, statusFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, typeFilter])
+
+  const createLocation = async (e: FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setFormError('')
+    try {
+      const response = await fetch('/api/locations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          code: code.toUpperCase(),
+          type,
+          address: city ? { city } : undefined,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        const firstDetail = data?.details ? Object.values(data.details).flat()[0] : null
+        setFormError(firstDetail || data?.error || 'Failed to create location')
+      } else {
+        setShowCreate(false)
+        setName('')
+        setCode('')
+        setCity('')
+        setType('warehouse')
+        fetchLocations()
+      }
+    } catch {
+      setFormError('Something went wrong. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const totalProducts = locations.reduce((s, l) => s + (l.productCount || 0), 0)
+  const totalStock = locations.reduce((s, l) => s + (l.totalStock || 0), 0)
+  const lowTotal = locations.reduce((s, l) => s + (l.lowStockCount || 0), 0)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Locations</h1>
-          <p className="text-muted-foreground">Manage your warehouses, stores, and distribution centers</p>
-        </div>
-        <Link href="/dashboard/locations/new">
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Location
-          </Button>
-        </Link>
+    <>
+      <PageHeading
+        eyebrow="OPERATING NETWORK"
+        title="Locations"
+        subtitle="See where your stock lives and how each location is performing."
+        action={
+          <button className="button button-primary" onClick={() => setShowCreate(true)}>
+            <Plus size={16} /> Add location
+          </button>
+        }
+      />
+
+      <div className="metric-grid compact-metrics">
+        <Metric label="Active locations" value={locations.filter((l) => l.isActive).length} icon={Warehouse} detail="in your workspace" />
+        <Metric label="Products stocked" value={totalProducts} icon={Building2} tone="mint" detail="across all locations" />
+        <Metric label="Units on hand" value={totalStock.toLocaleString()} icon={Warehouse} tone="blue" detail="total available stock" />
+        <Metric label="Low stock items" value={lowTotal} icon={AlertCircle} tone="orange" detail="need attention" />
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Search by name or code..."
+      <section className="panel table-panel" style={{ marginBottom: 18 }}>
+        <div className="inventory-toolbar">
+          <div className="table-tabs">
+            <button className={typeFilter === '' ? 'selected' : ''} onClick={() => setTypeFilter('')}>
+              All types
+            </button>
+            {['warehouse', 'store', 'distribution_center'].map((t) => (
+              <button key={t} className={typeFilter === t ? 'selected' : ''} onClick={() => setTypeFilter(t)}>
+                {locationTypeLabels[t]}
+              </button>
+            ))}
+          </div>
+          <div className="table-tools">
+            <label className="table-search">
+              <Search size={15} />
+              <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                icon={<Search className="h-4 w-4 text-muted-foreground" />}
+                placeholder="Search locations"
+                aria-label="Search locations"
               />
-            </div>
-            <Select
-              placeholder="All Types"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              options={[
-                { value: '', label: 'All Types' },
-                { value: 'warehouse', label: 'Warehouse' },
-                { value: 'store', label: 'Store' },
-                { value: 'distribution_center', label: 'Distribution Center' },
-                { value: 'other', label: 'Other' },
-              ]}
-            />
-            <Select
-              placeholder="All Statuses"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'active', label: 'Active' },
-                { value: 'inactive', label: 'Inactive' },
-              ]}
-            />
+            </label>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {error && (
-        <div className="p-4 rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
-          {error}
+        <div className="data-disclaimer">
+          <AlertCircle size={14} /> {error}
         </div>
       )}
 
-      {/* Locations Grid */}
       {loading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[...Array(6)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <Skeleton className="h-6 w-40 mb-2" />
-                <Skeleton className="h-4 w-24 mb-4" />
-                <Skeleton className="h-4 w-32 mb-2" />
-                <Skeleton className="h-4 w-28" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <div className="empty-state">Loading locations…</div>
       ) : locations.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center py-12">
-              <Warehouse className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-semibold text-lg mb-2">No locations found</h3>
-              <p className="text-muted-foreground mb-4">Get started by creating your first location.</p>
-              <Link href="/dashboard/locations/new">
-                <Button className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Create Location
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+        <section className="panel" style={{ padding: 24 }}>
+          <EmptyState
+            icon={Warehouse}
+            title="No locations found"
+            hint="Get started by creating your first location."
+          />
+        </section>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {locations.map((location) => (
-            <Card key={location._id} className="hover:shadow-lg transition-shadow">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <Link href={`/dashboard/locations/${location._id}`} className="font-semibold text-lg hover:text-primary transition-colors">
-                      {location.name}
-                    </Link>
-                    <p className="text-muted-foreground text-sm">{location.code}</p>
-                  </div>
-                  <Badge className={locationTypeColors[location.type] || ''}>
-                    {locationTypeLabels[location.type] || location.type}
-                  </Badge>
+        <div className="locations-grid">
+          {locations.map((location, i) => (
+            <article className="panel location-card" key={location._id}>
+              <div className="location-card-top">
+                <span className={`location-avatar large ${TYPE_COLORS[i % TYPE_COLORS.length]}`}>
+                  <Warehouse size={21} />
+                </span>
+              </div>
+              <span className="location-code">{location.code}</span>
+              <h2>
+                <Link href={`/dashboard/locations/${location._id}`}>{location.name}</Link>
+              </h2>
+              <p className="location-city">
+                <Building2 size={14} />
+                {[location.address?.city, location.address?.state, location.address?.country]
+                  .filter(Boolean)
+                  .join(', ') || locationTypeLabels[location.type] || location.type}
+              </p>
+              <span className="location-type">{locationTypeLabels[location.type] || location.type}</span>
+              <div className="location-stats">
+                <div>
+                  <b>{location.productCount}</b>
+                  <small>Products</small>
                 </div>
-
-                {location.address && (
-                  <div className="flex items-start gap-2 text-sm text-muted-foreground mb-2">
-                    <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>
-                      {[location.address.city, location.address.state, location.address.country]
-                        .filter(Boolean)
-                        .join(', ') || 'No address'}
-                    </span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t text-center">
-                  <div>
-                    <div className="text-sm font-medium">{location.productCount}</div>
-                    <div className="text-xs text-muted-foreground">Products</div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{location.totalStock}</div>
-                    <div className="text-xs text-muted-foreground">Stock</div>
-                  </div>
-                  <div>
-                    {location.lowStockCount > 0 ? (
-                      <div className="text-sm font-medium text-orange-500">{location.lowStockCount}</div>
-                    ) : (
-                      <CheckCircle className="h-5 w-5 text-green-500 mx-auto" />
-                    )}
-                    <div className="text-xs text-muted-foreground">Low Stock</div>
-                  </div>
+                <div>
+                  <b>{location.totalStock?.toLocaleString?.() ?? location.totalStock}</b>
+                  <small>Units on hand</small>
                 </div>
-
-                <div className="flex items-center justify-between mt-4 pt-3 border-t">
-                  <Badge variant={location.isActive ? 'success' : 'secondary'}>
-                    {location.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                  <Link href={`/dashboard/locations/${location._id}`}>
-                    <Button variant="ghost" size="sm">View Details</Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+              <div className="location-card-footer">
+                <Status value={location.isActive ? 'Healthy' : 'Needs attention'} />
+                <Link href={`/dashboard/locations/${location._id}`} className="subtle-link">
+                  View details <ArrowRight size={13} />
+                </Link>
+              </div>
+            </article>
           ))}
         </div>
       )}
-    </div>
+
+      {showCreate && (
+        <div className="modal-backdrop" onClick={() => setShowCreate(false)}>
+          <form
+            className="create-modal"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={createLocation}
+          >
+            <div className="modal-heading">
+              <div>
+                <div className="modal-kicker">NEW LOCATION</div>
+                <h2 style={{ fontFamily: 'Manrope', fontSize: 17, margin: '6px 0 0' }}>
+                  Add a location
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowCreate(false)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="auth-form">
+              <label>
+                Location name
+                <div className="field-wrap">
+                  <Warehouse size={16} />
+                  <input
+                    required
+                    placeholder="e.g. Central Hub"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+              </label>
+              <label>
+                Code
+                <div className="field-wrap">
+                  <Building2 size={16} />
+                  <input
+                    required
+                    placeholder="e.g. CENTRAL"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    maxLength={20}
+                    pattern="[A-Z0-9-]+"
+                    title="Uppercase letters, numbers, and hyphens only"
+                  />
+                </div>
+              </label>
+              <label>
+                Type
+                <div className="field-wrap">
+                  <select
+                    value={type}
+                    onChange={(e) => setType(e.target.value)}
+                    style={{ border: 0, outline: 0, width: '100%', background: 'transparent', color: 'var(--ink)' }}
+                  >
+                    <option value="warehouse">Warehouse</option>
+                    <option value="store">Store</option>
+                    <option value="distribution_center">Distribution center</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </label>
+              <label>
+                City <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span>
+                <div className="field-wrap">
+                  <Building2 size={16} />
+                  <input
+                    placeholder="e.g. Srinagar"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+              </label>
+
+              {formError && (
+                <div
+                  className="auth-message"
+                  style={{ background: '#fdeef0', borderColor: '#f6d3d9', color: '#a4404f' }}
+                >
+                  {formError}
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="button button-secondary" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="button button-primary" disabled={saving}>
+                  {saving ? 'Creating…' : 'Create location'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

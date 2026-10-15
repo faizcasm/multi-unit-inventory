@@ -1,35 +1,71 @@
 'use client'
 
-import * as React from 'react'
 import Link from 'next/link'
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Card, CardContent } from '@/components/ui/Card'
+import { ArrowLeft, Boxes, ShieldAlert } from 'lucide-react'
 
 export default function AuthErrorPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center p-8">
-      <Card className="w-full max-w-md">
-        <CardContent className="pt-6 pb-8 px-6 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-            <AlertTriangle className="h-8 w-8 text-destructive" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Authentication Error</h1>
-          <p className="text-muted-foreground mb-6">
-            Something went wrong during authentication. Please try again or contact support if the problem persists.
+    <main className="auth-page">
+      <section className="auth-side">
+        <Link href="/" className="brand">
+          <span className="brand-mark">
+            <Boxes size={20} />
+          </span>
+          <span>
+            ricoz<span className="brand-light"> inventory</span>
+          </span>
+        </Link>
+        <div className="auth-side-content">
+          <div className="eyebrow">AUTHENTICATION</div>
+          <h1>
+            Something
+            <br />
+            <span>went sideways.</span>
+          </h1>
+          <p>
+            Sign-in didn&apos;t complete. Your workspace is safe — just try again in a moment.
           </p>
-          <div className="flex flex-col gap-3">
-            <Button onClick={() => window.history.back()} variant="outline" className="gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Try Again
-            </Button>
-            <Button onClick={() => window.location.href = '/'} variant="ghost" className="gap-2">
-              <Home className="h-4 w-4" />
-              Go Home
-            </Button>
+        </div>
+        <div className="auth-side-bottom">
+          <span>Designed for teams on the move.</span>
+          <span>© 2026 Ricoz Inventory</span>
+        </div>
+        <div className="auth-deco deco-one" />
+        <div className="auth-deco deco-two" />
+      </section>
+      <section className="auth-main">
+        <Link href="/" className="auth-back">
+          <ArrowLeft size={15} /> Back to home
+        </Link>
+        <div className="auth-card">
+          <div className="auth-mobile-brand">
+            <span className="brand-mark">
+              <Boxes size={20} />
+            </span>
+            <b>ricoz inventory</b>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+          <div className="auth-heading">
+            <span className="auth-kicker">AUTHENTICATION ERROR</span>
+            <h2>We couldn&apos;t sign you in</h2>
+            <p>
+              Something went wrong during authentication. Try again, or contact your workspace admin
+              if it keeps happening.
+            </p>
+          </div>
+          <div className="auth-form">
+            <Link href="/signin" className="button button-primary auth-submit">
+              <ShieldAlert size={16} /> Try signing in again
+            </Link>
+            <Link href="/" className="button button-secondary auth-submit">
+              Go back home
+            </Link>
+          </div>
+          <div className="auth-legal">
+            If you were trying to reset your password, use the forgot password link on the sign-in
+            page.
+          </div>
+        </div>
+      </section>
+    </main>
   )
 }

@@ -1,16 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, Search, Truck, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
-import { Card, CardContent } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { Skeleton } from '@/components/ui/Skeleton'
-import { cn } from '@/lib/utils/helpers'
+import { Truck, Search, Plus, ArrowRight, CalendarDays, AlertCircle } from 'lucide-react'
+import { PageHeading, Metric, Status, EmptyState } from '@/components/redesign/ui'
 
 interface Transfer {
   _id: string
@@ -24,33 +17,33 @@ interface Transfer {
   updatedAt: string
 }
 
-const statusVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info'> = {
-  DRAFT: 'secondary',
-  PENDING_APPROVAL: 'warning',
-  APPROVED: 'info',
-  IN_TRANSIT: 'info',
-  COMPLETED: 'success',
-  REJECTED: 'destructive',
-  CANCELLED: 'secondary',
-}
+type Tab = 'All' | 'In progress' | 'Completed' | 'Needs review'
+
+const inProgress = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'IN_TRANSIT']
 
 export default function TransfersPage() {
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [tab, setTab] = useState<Tab>('All')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const statusParam =
+    tab === 'Needs review' ? 'PENDING_APPROVAL' : tab === 'Completed' ? 'COMPLETED' : ''
 
   const fetchTransfers = async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (statusFilter) params.set('status', statusFilter)
+      if (statusParam) params.set('status', statusParam)
 
       const response = await fetch(`/api/transfers?${params.toString()}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to fetch transfers')
-      setTransfers(data.data || [])
+      let rows: Transfer[] = data.data || []
+      if (tab === 'In progress') rows = rows.filter((t) => inProgress.includes(t.status))
+      setTransfers(rows)
+      setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load transfers')
     } finally {
@@ -60,141 +53,152 @@ export default function TransfersPage() {
 
   useEffect(() => {
     fetchTransfers()
-  }, [statusFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
-  const filteredTransfers = transfers.filter(
+  const filtered = transfers.filter(
     (t) =>
       !search ||
       t.reference.toLowerCase().includes(search.toLowerCase()) ||
-      t.sourceLocation.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.destinationLocation.name.toLowerCase().includes(search.toLowerCase())
+      t.sourceLocation?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      t.destinationLocation?.name?.toLowerCase().includes(search.toLowerCase())
   )
 
+  const totalUnits = (t: Transfer) =>
+    t.lineItems?.reduce((sum, li) => sum + (li.requestedQuantity || 0), 0) ?? 0
+
+  const counts = {
+    all: transfers.length,
+    progress: transfers.filter((t) => inProgress.includes(t.status)).length,
+    completed: transfers.filter((t) => t.status === 'COMPLETED').length,
+    review: transfers.filter((t) => t.status === 'PENDING_APPROVAL').length,
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Transfers</h1>
-          <p className="text-muted-foreground">Manage inventory transfers between locations</p>
-        </div>
-        <Link href="/dashboard/transfers/new">
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Transfer
-          </Button>
-        </Link>
+    <>
+      <PageHeading
+        eyebrow="STOCK MOVEMENT"
+        title="Transfers"
+        subtitle="Track every stock movement from request to receipt."
+        action={
+          <Link href="/dashboard/transfers/new" className="button button-primary">
+            <Plus size={16} /> New transfer
+          </Link>
+        }
+      />
+
+      <div className="metric-grid compact-metrics">
+        <Metric label="Total transfers" value={counts.all} icon={Truck} detail="in this workspace" />
+        <Metric label="In progress" value={counts.progress} icon={ArrowRight} tone="blue" detail="awaiting receipt or action" />
+        <Metric label="Needs approval" value={counts.review} icon={CalendarDays} tone="orange" detail="waiting for review" />
+        <Metric label="Completed" value={counts.completed} icon={Truck} tone="mint" detail="fully received" />
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Search by reference or location..."
+      <section className="panel table-panel">
+        <div className="inventory-toolbar">
+          <div className="table-tabs">
+            {(['All', 'In progress', 'Completed', 'Needs review'] as Tab[]).map((t) => (
+              <button key={t} className={tab === t ? 'selected' : ''} onClick={() => setTab(t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="table-tools">
+            <label className="table-search">
+              <Search size={15} />
+              <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                icon={<Search className="h-4 w-4 text-muted-foreground" />}
+                placeholder="Search reference or location"
+                aria-label="Search transfers"
               />
-            </div>
-            <Select
-              placeholder="All Statuses"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'DRAFT', label: 'Draft' },
-                { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
-                { value: 'APPROVED', label: 'Approved' },
-                { value: 'IN_TRANSIT', label: 'In Transit' },
-                { value: 'COMPLETED', label: 'Completed' },
-                { value: 'REJECTED', label: 'Rejected' },
-                { value: 'CANCELLED', label: 'Cancelled' },
-              ]}
-            />
+            </label>
           </div>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <div className="p-4 rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
-          {error}
         </div>
-      )}
 
-      <Card>
-        <CardContent className="pt-6">
+        {error && (
+          <div className="data-disclaimer" style={{ padding: '0 20px' }}>
+            <AlertCircle size={14} /> {error}
+          </div>
+        )}
+
+        <div className="table-scroll">
           {loading ? (
-            <div className="space-y-4">
-              {[...Array(8)].map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : filteredTransfers.length === 0 ? (
-            <div className="text-center py-12">
-              <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-semibold text-lg mb-2">No transfers found</h3>
-              <p className="text-muted-foreground mb-4">Create your first transfer to get started.</p>
-              <Link href="/dashboard/transfers/new">
-                <Button className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Create Transfer
-                </Button>
-              </Link>
-            </div>
+            <div className="empty-state">Loading transfers…</div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={Truck}
+              title="No transfers in this view"
+              hint="Create your first transfer to get started."
+            />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Destination</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTransfers.map((transfer) => (
-                  <TableRow key={transfer._id}>
-                    <TableCell className="font-mono">{transfer.reference}</TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{transfer.sourceLocation.name}</div>
-                        <div className="text-xs text-muted-foreground">{transfer.sourceLocation.code}</div>
+            <table className="data-table transfer-data-table">
+              <thead>
+                <tr>
+                  <th>Transfer ID</th>
+                  <th>Route</th>
+                  <th>Items / Qty</th>
+                  <th>Requested by</th>
+                  <th>Updated</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((transfer) => (
+                  <tr key={transfer._id}>
+                    <td>
+                      <b className="transfer-id">{transfer.reference}</b>
+                    </td>
+                    <td>
+                      <div className="route-cell">
+                        <span>{transfer.sourceLocation?.name}</span>
+                        <ArrowRight size={13} />
+                        <span>{transfer.destinationLocation?.name}</span>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">{transfer.destinationLocation.name}</div>
-                          <div className="text-xs text-muted-foreground">{transfer.destinationLocation.code}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{transfer.lineItems.length}</TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariants[transfer.status] || 'secondary'}>
-                        {transfer.status.replace('_', ' ')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(transfer.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/dashboard/transfers/${transfer._id}`}>
-                        <Button variant="ghost" size="sm">View</Button>
+                    </td>
+                    <td>
+                      <b>{transfer.lineItems?.length ?? 0} items</b>
+                      <small className="stock-reorder"> {totalUnits(transfer)} units</small>
+                    </td>
+                    <td>
+                      <span className="person-cell">
+                        <span className="person-dot">
+                          {(transfer.requester?.name || '?')
+                            .split(' ')
+                            .map((s) => s[0])
+                            .join('')
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </span>
+                        {transfer.requester?.name || 'Unknown'}
+                      </span>
+                    </td>
+                    <td>{new Date(transfer.updatedAt || transfer.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      <Status value={transfer.status} />
+                    </td>
+                    <td>
+                      <Link href={`/dashboard/transfers/${transfer._id}`} className="subtle-link">
+                        Open <ArrowRight size={13} />
                       </Link>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ))}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+        {!loading && filtered.length > 0 && (
+          <div className="table-footer">
+            <span>
+              Showing <b>{filtered.length}</b> transfers
+            </span>
+            <span>Newest first</span>
+          </div>
+        )}
+      </section>
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

@@ -4,20 +4,30 @@ import { connectDB } from '@/lib/db/mongodb'
 import { Location } from '@/models/Location'
 import { Types } from 'mongoose'
 import Link from 'next/link'
-import { Package, Warehouse, MapPin, ArrowLeft } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
+import { Building2, ChevronLeft, MapPin, Package, Truck, Warehouse } from 'lucide-react'
+import { Status } from '@/components/redesign/ui'
 
 interface LocationPageProps {
   params: { id: string }
 }
 
 export async function generateMetadata({ params }: LocationPageProps): Promise<Metadata> {
-  await connectDB()
-  const location = await Location.findById(params.id).lean() as any as any
-  if (!location) return { title: 'Location Not Found' }
-  return { title: `${location?.name} | Location` }
+  if (!Types.ObjectId.isValid(params.id)) return { title: 'Location Not Found' }
+  try {
+    await connectDB()
+    const location = (await Location.findById(params.id).lean()) as any
+    if (!location) return { title: 'Location Not Found' }
+    return { title: `${location?.name} | Location` }
+  } catch {
+    return { title: 'Location Not Found' }
+  }
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  warehouse: 'Warehouse',
+  store: 'Retail store',
+  distribution_center: 'Distribution center',
+  other: 'Other',
 }
 
 export default async function LocationDetailPage({ params }: LocationPageProps) {
@@ -27,85 +37,119 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
     notFound()
   }
 
-  const location = await Location.findById(params.id)
+  const location = (await Location.findById(params.id)
     .populate('organization', 'name')
-    .lean() as any as any
+    .lean()) as any
 
   if (!location) {
     notFound()
   }
 
+  const address = location.address || {}
+  const addressLine = [
+    address.street,
+    [address.city, address.state].filter(Boolean).join(', '),
+    address.postalCode,
+    address.country,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
+    <>
+      <div className="back-row">
         <Link href="/dashboard/locations">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+          <ChevronLeft size={15} /> Back to locations
         </Link>
+        <span> / {location.code}</span>
+      </div>
+
+      <div className="page-heading">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{location.name}</h1>
-          <p className="text-muted-foreground">{location.code} • {location.type}</p>
+          <div className="page-eyebrow">LOCATION RECORD</div>
+          <h1>{location.name}</h1>
+          <p>
+            {location.code} · {TYPE_LABELS[location.type] || location.type}
+          </p>
+        </div>
+        <div className="heading-action">
+          <Link
+            href={`/dashboard/inventory?search=${encodeURIComponent(location.name)}`}
+            className="button button-secondary"
+          >
+            <Package size={15} /> View inventory
+          </Link>
+          <Link href="/dashboard/transfers/new" className="button button-primary">
+            <Truck size={15} /> New transfer
+          </Link>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Location Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <h4 className="font-medium text-sm text-muted-foreground mb-1">Type</h4>
-              <p className="capitalize">{location.type.replace('_', ' ')}</p>
-            </div>
-            <div>
-              <h4 className="font-medium text-sm text-muted-foreground mb-1">Status</h4>
-              <Badge variant={location.isActive ? 'success' : 'secondary'}>
-                {location.isActive ? 'Active' : 'Inactive'}
-              </Badge>
-            </div>
-            {location.address && (
-              <div className="md:col-span-2">
-                <h4 className="font-medium text-sm text-muted-foreground mb-1">Address</h4>
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
-                  <p>
-                    {location.address.street && <span>{location.address.street}<br /></span>}
-                    {location.address.city && location.address.state && (
-                      <span>{location.address.city}, {location.address.state}</span>
-                    )}
-                    {location.address.postalCode && <span> {location.address.postalCode}</span>}
-                    {location.address.country && <span><br />{location.address.country}</span>}
-                  </p>
-                </div>
-              </div>
-            )}
-            {location.description && (
-              <div className="md:col-span-2">
-                <h4 className="font-medium text-sm text-muted-foreground mb-1">Description</h4>
-                <p>{location.description}</p>
-              </div>
-            )}
+      <div className="product-detail-grid">
+        <section className="panel product-overview">
+          <div className="product-hero-icon">
+            <Warehouse size={38} />
           </div>
-        </CardContent>
-      </Card>
+          <div className="product-overview-title">
+            <h2>{location.name}</h2>
+            <span className="muted">{location.code}</span>
+            <Status value={location.isActive ? 'Healthy' : 'Needs attention'} />
+          </div>
+          <div className="detail-separator" />
+          <div className="detail-kv">
+            <span>Type</span>
+            <b>{TYPE_LABELS[location.type] || location.type}</b>
+          </div>
+          <div className="detail-kv">
+            <span>Status</span>
+            <b>{location.isActive ? 'Active' : 'Inactive'}</b>
+          </div>
+          {addressLine && (
+            <div className="detail-kv">
+              <span>Address</span>
+              <b style={{ fontWeight: 500 }}>{addressLine}</b>
+            </div>
+          )}
+          {location.description && (
+            <div className="detail-kv">
+              <span>Description</span>
+              <b style={{ fontWeight: 500 }}>{location.description}</b>
+            </div>
+          )}
+          <div className="detail-kv">
+            <span>Workspace</span>
+            <b>{location.organization?.name || '—'}</b>
+          </div>
+        </section>
 
-      <div className="flex gap-4">
-        <Link href={`/dashboard/locations/${params.id}/inventory`}>
-          <Button variant="outline" className="gap-2">
-            <Package className="h-4 w-4" />
-            View Inventory
-          </Button>
-        </Link>
-        <Link href={`/dashboard/locations/${params.id}/transfers`}>
-          <Button variant="outline" className="gap-2">
-            <Warehouse className="h-4 w-4" />
-            View Transfers
-          </Button>
-        </Link>
+        <section className="panel product-stock">
+          <div className="panel-heading">
+            <div>
+              <h2>Quick actions</h2>
+              <p>Move stock in or out of this location</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: 10, padding: '0 20px 20px' }}>
+            <Link href="/dashboard/inventory/adjust" className="button button-secondary" style={{ width: '100%' }}>
+              <Package size={15} /> Adjust stock here
+            </Link>
+            <Link
+              href={`/dashboard/inventory?search=${encodeURIComponent(location.name)}`}
+              className="button button-secondary"
+              style={{ width: '100%' }}
+            >
+              <Building2 size={15} /> See stock levels
+            </Link>
+            <Link href="/dashboard/transfers" className="button button-secondary" style={{ width: '100%' }}>
+              <Truck size={15} /> Transfers touching this location
+            </Link>
+            <div className="stock-note">
+              <MapPin size={15} /> Location-level permissions control who can move stock here.
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

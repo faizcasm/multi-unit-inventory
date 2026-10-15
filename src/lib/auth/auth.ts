@@ -1,9 +1,14 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { connectDB } from '@/lib/db/mongodb'
+// Side-effect imports: register every schema before populate() runs.
+// (A plain `import { User }` gets tree-shaken when unused, which leaves
+// mongoose without a registered model and breaks authorize().)
+import '@/models/User'
+import '@/models/Membership'
+import '@/models/Organization'
 import { User } from '@/models/User'
 import { Membership } from '@/models/Membership'
-import { Organization } from '@/models/Organization'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { SessionUser } from '@/types'
