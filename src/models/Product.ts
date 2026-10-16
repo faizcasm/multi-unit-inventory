@@ -11,6 +11,8 @@ export interface IProduct extends Document {
   unitOfMeasure: UnitOfMeasure
   barcode?: string
   image?: string
+  supplier?: Types.ObjectId
+  unitCost: number
   reorderThreshold: number
   reorderQuantity: number
   isActive: boolean
@@ -28,6 +30,8 @@ const ProductSchema = new Schema<IProduct>(
     unitOfMeasure: { type: String, enum: ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'cm', 'box', 'pack', 'roll', 'other'], required: true, default: 'pcs' },
     barcode: { type: String, trim: true, maxlength: 100 },
     image: { type: String },
+    supplier: { type: Schema.Types.ObjectId, ref: 'Supplier' },
+    unitCost: { type: Number, default: 0, min: 0 },
     reorderThreshold: { type: Number, default: 0, min: 0 },
     reorderQuantity: { type: Number, default: 0, min: 0 },
     isActive: { type: Boolean, default: true },
@@ -38,6 +42,7 @@ const ProductSchema = new Schema<IProduct>(
 ProductSchema.index({ organization: 1, sku: 1 }, { unique: true })
 ProductSchema.index({ organization: 1, isActive: 1 })
 ProductSchema.index({ organization: 1, category: 1 })
+ProductSchema.index({ organization: 1, supplier: 1 })
 ProductSchema.index({ organization: 1, name: 'text', description: 'text', sku: 'text' })
 
 export const Product = mongoose.models.Product || mongoose.model<IProduct>('Product', ProductSchema)

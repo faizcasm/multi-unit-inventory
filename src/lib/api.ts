@@ -21,9 +21,22 @@ interface ApiResponse<T = unknown> {
 
 export async function apiFetch<T = unknown>(
   endpoint: string,
-  options: RequestInit = {}
+  options: Omit<RequestInit, 'body'> & {
+    /**
+     * Accepts either a plain object (JSON-encoded here) or an already
+     * JSON.stringify'd string (passed through untouched).
+     */
+    body?: unknown
+  } = {}
 ): Promise<ApiResponse<T>> {
   const { method = 'GET', body, headers, ...rest } = options
+
+  const serializedBody =
+    body == null
+      ? undefined
+      : typeof body === 'string'
+        ? body
+        : JSON.stringify(body)
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     method,
@@ -31,7 +44,7 @@ export async function apiFetch<T = unknown>(
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: serializedBody,
     ...rest,
   })
 

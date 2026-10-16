@@ -1,14 +1,21 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { useCan } from '@/hooks/useCan'
-import { Boxes, ChevronLeft, Package, ShieldAlert } from 'lucide-react'
+import { Boxes, ChevronLeft, Package, ShieldAlert, Truck } from 'lucide-react'
 import { PageHeading } from '@/components/redesign/ui'
+import { apiFetch } from '@/lib/api'
 
 const UNIT_OPTIONS = ['pcs', 'kg', 'g', 'l', 'ml', 'm', 'cm', 'box', 'pack', 'roll', 'other']
+
+interface SupplierOption {
+  _id: string
+  name: string
+  leadTimeDays: number
+}
 
 export default function NewProductPage() {
   const router = useRouter()
@@ -23,9 +30,24 @@ export default function NewProductPage() {
     barcode: '',
     reorderThreshold: 0,
     reorderQuantity: 0,
+    supplier: '',
+    unitCost: '',
   })
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    ;(async () => {
+      try {
+        const res = await apiFetch<SupplierOption[]>('/api/suppliers?limit=100&active=active')
+        if (res.success) setSuppliers(res.data || [])
+      } catch {
+        // Supplier picker is optional — leave it empty on failure.
+      }
+    })()
+  }, [status])
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((prev) => ({
@@ -51,6 +73,8 @@ export default function NewProductPage() {
           description: form.description || undefined,
           category: form.category || undefined,
           barcode: form.barcode || undefined,
+          supplier: form.supplier || undefined,
+          unitCost: Math.max(0, parseFloat(String(form.unitCost)) || 0),
         }),
       })
       const data = await response.json()
@@ -187,6 +211,49 @@ export default function NewProductPage() {
             Reorder quantity
             <div className="field-wrap">
               <input type="number" min={0} value={form.reorderQuantity} onChange={set('reorderQuantity')} />
+            </div>
+          </label>
+        </div>
+
+        <div className="modal-route-grid" style={{ marginBottom: 18 }}>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            Supplier <span className="optional">(optional)</span>
+            <div className="field-wrap">
+              <Truck size={16} />
+              <select
+                value={form.supplier}
+                onChange={set('supplier')}
+                style={{ border: 0, outline: 0, width: '100%', background: 'transparent', color: 'var(--ink)' }}
+              >
+                <option value="">None</option>
+                {suppliers.map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name} — {s.leadTimeDays}d lead time
+                  </option>
+                ))}
+              </select>
+            </div>
+            <small style={{ fontWeight: 400, color: 'var(--muted)' }}>
+              {suppliers.length === 0 && <>No active suppliers yet — </>}
+              <Link href="/dashboard/suppliers" className="subtle-link">
+                Manage suppliers
+              </Link>
+            </small>
+          </label>
+          <span className="modal-route-icon" aria-hidden>
+            $
+          </span>
+          <label className="settings-field" style={{ maxWidth: 'none', marginBottom: 0 }}>
+            Unit cost <span className="optional">(optional)</span>
+            <div className="field-wrap">
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                placeholder="0.00"
+                value={form.unitCost}
+                onChange={set('unitCost')}
+              />
             </div>
           </label>
         </div>

@@ -21,6 +21,14 @@ export interface IUser extends Document {
       inApp: boolean
     }
     dashboardLayout: 'compact' | 'comfortable'
+    /** Dashboard widget personalization: visibility + ordering by widget id. */
+    widgets?: {
+      id: string
+      visible: boolean
+      order: number
+    }[]
+    /** Set once the user dismisses the getting-started checklist. */
+    onboardingDismissed?: boolean
   }
   createdAt: Date
   updatedAt: Date
@@ -46,6 +54,15 @@ const UserSchema = new Schema<IUser>(
         inApp: { type: Boolean, default: true },
       },
       dashboardLayout: { type: String, enum: ['compact', 'comfortable'], default: 'comfortable' },
+      widgets: [
+        {
+          _id: false,
+          id: { type: String, required: true },
+          visible: { type: Boolean, default: true },
+          order: { type: Number, default: 0 },
+        },
+      ],
+      onboardingDismissed: { type: Boolean, default: false },
     },
   },
   { timestamps: true }

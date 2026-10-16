@@ -3,12 +3,16 @@ import { Metadata } from 'next'
 import Link from 'next/link'
 import { connectDB } from '@/lib/db/mongodb'
 import { Product } from '@/models/Product'
+// Side-effect import: registers the Supplier schema so populate('supplier')
+// resolves even when no other Supplier code has loaded in this process.
+import '@/models/Supplier'
 import { Inventory } from '@/models/Inventory'
 import { InventoryMovement } from '@/models/InventoryMovement'
 import { StockTransfer } from '@/models/StockTransfer'
 import { auth } from '@/lib/auth/auth'
 import { hasPermission } from '@/lib/permissions'
 import { Metric, Status, EmptyState } from '@/components/redesign/ui'
+import { EditProductModal } from './EditProductModal'
 import {
   ArrowLeftRight,
   Boxes,
@@ -94,7 +98,9 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
   const product = (await Product.findOne({
     _id: params.id,
     organization: session.user.organizationId,
-  }).lean()) as any
+  })
+    .populate('supplier', 'name leadTimeDays isActive')
+    .lean()) as any
 
   if (!product) {
     notFound()
@@ -136,6 +142,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
 
   const canAdjust = hasPermission(session.user.role, 'inventory:adjust')
   const canTransfer = hasPermission(session.user.role, 'transfers:create')
+  const canUpdateProduct = hasPermission(session.user.role, 'products:update')
   const locationsWithStock = inventory.filter((i: any) => (i?.availableQuantity || 0) > 0).length
 
   return (
@@ -167,6 +174,25 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             <Link href="/dashboard/inventory/adjust" className="button button-secondary">
               <Settings2 size={15} /> Adjust stock
             </Link>
+          )}
+          {canUpdateProduct && (
+            <EditProductModal
+              product={{
+                _id: String(product._id),
+                name: product.name,
+                sku: product.sku,
+                description: product.description,
+                category: product.category,
+                unitOfMeasure: product.unitOfMeasure,
+                barcode: product.barcode,
+                reorderThreshold: product.reorderThreshold,
+                reorderQuantity: product.reorderQuantity,
+                unitCost: product.unitCost ?? 0,
+                supplier: product.supplier
+                  ? { _id: String(product.supplier._id ?? product.supplier), name: product.supplier.name }
+                  : null,
+              }}
+            />
           )}
           {canTransfer && (
             <Link href="/dashboard/transfers/new" className="button button-primary">
@@ -229,6 +255,24 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           <div className="detail-kv">
             <span>Unit of measure</span>
             <b>{product.unitOfMeasure}</b>
+          </div>
+          <div className="detail-kv">
+            <span>Supplier</span>
+            <b>
+              {product.supplier ? (
+                <Link href={`/dashboard/suppliers/${product.supplier._id}`} className="subtle-link">
+                  {product.supplier.name}
+                </Link>
+              ) : (
+                <Link href="/dashboard/suppliers" className="subtle-link" title="Add or manage suppliers">
+                  None — manage suppliers
+                </Link>
+              )}
+            </b>
+          </div>
+          <div className="detail-kv">
+            <span>Unit cost</span>
+            <b>{(product.unitCost ?? 0).toFixed(2)}</b>
           </div>
           <div className="detail-kv">
             <span>Barcode</span>

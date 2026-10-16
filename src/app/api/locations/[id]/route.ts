@@ -4,7 +4,7 @@ import { Location } from '@/models/Location'
 import { Inventory } from '@/models/Inventory'
 import { StockTransfer } from '@/models/StockTransfer'
 import { auth } from '@/lib/auth/auth'
-import { locationSchema } from '@/lib/validation/schemas'
+import { locationUpdateSchema } from '@/lib/validation/catalog'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
 import { Types } from 'mongoose'
@@ -104,7 +104,7 @@ export async function PATCH(
     await connectDB()
 
     const body = await request.json()
-    const parsed = locationSchema.partial().safeParse(body)
+    const parsed = locationUpdateSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(

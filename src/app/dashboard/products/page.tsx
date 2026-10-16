@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Package, Plus, Search, AlertCircle, ArrowRight } from 'lucide-react'
-import { PageHeading, Status, EmptyState } from '@/components/redesign/ui'
-import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
+import { Package, Plus, Printer, Search, AlertCircle, ArrowRight, Upload } from 'lucide-react'
+import { PageHeading, Status, EmptyState, Toast } from '@/components/redesign/ui'
+import { Pagination, CsvExportButton, toCsv } from '@/components/redesign/TableBits'
 import { apiFetch, ApiPagination } from '@/lib/api'
 import { useCan } from '@/hooks/useCan'
 
@@ -37,6 +37,97 @@ export default function ProductsPage() {
   const [error, setError] = useState('')
 
   const canCreate = useCan('products:create')
+  const canRead = useCan('products:read')
+  const canDeactivate = useCan('products:deactivate')
+
+  // Bulk selection (id → product, so cross-page exports keep their rows).
+  const [selected, setSelected] = useState<Record<string, Product>>({})
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [toast, setToast] = useState('')
+
+  const selectedIds = Object.keys(selected)
+  const selectedCount = selectedIds.length
+  const allOnPageSelected = products.length > 0 && products.every((p) => selected[p._id])
+
+  const toggleRow = (product: Product) =>
+    setSelected((prev) => {
+      const next = { ...prev }
+      if (next[product._id]) delete next[product._id]
+      else next[product._id] = product
+      return next
+    })
+
+  const toggleAllOnPage = () =>
+    setSelected((prev) => {
+      const next = { ...prev }
+      if (allOnPageSelected) {
+        products.forEach((p) => delete next[p._id])
+      } else {
+        products.forEach((p) => {
+          next[p._id] = p
+        })
+      }
+      return next
+    })
+
+  const exportSelectedCsv = () => {
+    const rows = Object.values(selected)
+    if (!rows.length) return
+    const columns = [
+      { key: 'product', header: 'Product' },
+      { key: 'sku', header: 'SKU' },
+      { key: 'category', header: 'Category' },
+      { key: 'barcode', header: 'Barcode' },
+      { key: 'unit', header: 'Unit' },
+      { key: 'active', header: 'Active' },
+    ]
+    const csv = String.fromCharCode(0xfeff) + toCsv(
+      columns,
+      rows.map((row) => ({
+        product: row.name,
+        sku: row.sku,
+        category: row.category || '',
+        barcode: row.barcode || '',
+        unit: row.unitOfMeasure || '',
+        active: row.isActive ? 'Yes' : 'No',
+      }))
+    )
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const downloadUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = downloadUrl
+    anchor.download = `products-selected-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(downloadUrl)
+    setToast(`Exported ${rows.length} product${rows.length === 1 ? '' : 's'}`)
+  }
+
+  const runBulk = async (action: 'activate' | 'deactivate') => {
+    const ids = selectedIds.slice(0, 100)
+    if (!ids.length || bulkBusy) return
+    const verb = action === 'activate' ? 'Activate' : 'Deactivate'
+    if (!window.confirm(`${verb} ${ids.length} selected product${ids.length === 1 ? '' : 's'}?`)) return
+    setBulkBusy(true)
+    try {
+      const res = await fetch('/api/products/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, action }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Bulk update failed')
+      const updated = Number(json.data?.updated ?? 0)
+      setToast(`${updated} product${updated === 1 ? '' : 's'} ${action === 'activate' ? 'activated' : 'deactivated'}`)
+      setSelected({})
+      fetchProducts()
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Bulk update failed')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   /** Query string for the current filters. */
   const buildQuery = () => {
@@ -107,6 +198,16 @@ export default function ProductsPage() {
                 active: row.isActive ? 'Yes' : 'No',
               })}
             />
+            {canRead && (
+              <Link href="/dashboard/labels" className="button button-secondary">
+                <Printer size={15} /> Print labels
+              </Link>
+            )}
+            {canCreate && (
+              <Link href="/dashboard/products/import" className="button button-secondary">
+                <Upload size={15} /> Import CSV
+              </Link>
+            )}
             {canCreate && (
               <Link href="/dashboard/products/new" className="button button-primary">
                 <Plus size={16} /> New product
@@ -199,6 +300,14 @@ export default function ProductsPage() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: 38 }}>
+                    <input
+                      type="checkbox"
+                      checked={allOnPageSelected}
+                      onChange={toggleAllOnPage}
+                      aria-label="Select all products on this page"
+                    />
+                  </th>
                   <th>Product</th>
                   <th>Category</th>
                   <th>Available</th>
@@ -210,6 +319,14 @@ export default function ProductsPage() {
               <tbody>
                 {products.map((product) => (
                   <tr key={product._id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={!!selected[product._id]}
+                        onChange={() => toggleRow(product)}
+                        aria-label={`Select ${product.name}`}
+                      />
+                    </td>
                     <td>
                       <Link
                         href={`/dashboard/products/${product._id}`}
@@ -251,6 +368,63 @@ export default function ProductsPage() {
             </table>
           )}
         </div>
+
+        {selectedCount > 0 && (
+          <div
+            style={{
+              position: 'sticky',
+              bottom: 14,
+              margin: '0 20px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              background: '#241c3f',
+              color: '#fff',
+              borderRadius: 11,
+              padding: '10px 14px',
+              zIndex: 5,
+              boxShadow: '0 14px 34px rgba(28,20,54,.3)',
+            }}
+          >
+            <b style={{ fontSize: 11.5 }}>
+              {selectedCount} selected
+            </b>
+            <span style={{ flex: 1 }} />
+            <button className="button button-small button-secondary" type="button" onClick={exportSelectedCsv}>
+              Export selected CSV
+            </button>
+            {canDeactivate && (
+              <>
+                <button
+                  className="button button-small button-secondary"
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => runBulk('deactivate')}
+                >
+                  Deactivate
+                </button>
+                <button
+                  className="button button-small button-secondary"
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => runBulk('activate')}
+                >
+                  Activate
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setSelected({})}
+              aria-label="Clear selection"
+              style={{ background: 'transparent', border: 0, color: '#cfc8e8', fontSize: 13, cursor: 'pointer' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {!loading && products.length > 0 && (
           <Pagination
             page={pagination.page}
@@ -261,6 +435,8 @@ export default function ProductsPage() {
           />
         )}
       </section>
+
+      <Toast message={toast} onClose={() => setToast('')} />
     </>
   )
 }

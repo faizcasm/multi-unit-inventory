@@ -2,12 +2,22 @@ import { notFound, redirect } from 'next/navigation'
 import { Metadata } from 'next'
 import { connectDB } from '@/lib/db/mongodb'
 import { Location } from '@/models/Location'
+import { Inventory } from '@/models/Inventory'
 import { Types } from 'mongoose'
 import Link from 'next/link'
-import { Building2, ChevronLeft, MapPin, Package, Truck, Warehouse } from 'lucide-react'
-import { Status } from '@/components/redesign/ui'
+import { Building2, ChevronLeft, MapPin, Package, Truck, Warehouse, AlertTriangle, Gauge } from 'lucide-react'
+import { Status, Metric } from '@/components/redesign/ui'
 import { NewTransferTruckButton } from '@/components/redesign/NewTransferButton'
 import { auth } from '@/lib/auth/auth'
+import { hasPermission } from '@/lib/permissions'
+import { CapacityEditor } from './CapacityEditor'
+
+/** Utilization bar color: mint <70%, orange 70–90%, red >90%. */
+function utilizationColor(percent: number): string {
+  if (percent < 70) return '#23835c'
+  if (percent <= 90) return '#b96b16'
+  return '#c55c50'
+}
 
 interface LocationPageProps {
   params: { id: string }
@@ -68,6 +78,21 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
     .filter(Boolean)
     .join(' · ')
 
+  // onHand for utilization = available + reserved + damaged at this location.
+  const invRows = (await Inventory.find({
+    location: location._id,
+    organization: session.user.organizationId,
+  })
+    .select('availableQuantity reservedQuantity damagedQuantity')
+    .lean()) as any[]
+  const onHand = invRows.reduce(
+    (sum, r) => sum + (r.availableQuantity || 0) + (r.reservedQuantity || 0) + (r.damagedQuantity || 0),
+    0
+  )
+  const capacity: number | null = typeof location.capacity === 'number' ? location.capacity : null
+  const percent = capacity && capacity > 0 ? Math.round((onHand / capacity) * 100) : null
+  const canUpdate = hasPermission(session.user.role, 'locations:update')
+
   return (
     <>
       <div className="back-row">
@@ -96,6 +121,94 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
         </div>
       </div>
 
+      <div className="metric-grid compact-metrics">
+        <Metric
+          label="Utilization"
+          value={percent === null ? '—' : `${percent}%`}
+          icon="gauge"
+          tone={percent === null ? 'purple' : percent < 70 ? 'mint' : percent <= 90 ? 'orange' : 'orange'}
+          detail={capacity ? `of ${capacity.toLocaleString()} unit capacity` : 'no capacity set'}
+        />
+        <Metric label="Units on hand" value={onHand.toLocaleString()} icon="package" tone="blue" detail="available + reserved + damaged" />
+        <Metric label="Capacity" value={capacity === null ? '—' : capacity.toLocaleString()} icon="warehouse" detail={capacity ? 'max units at this location' : 'unset'} />
+        <Metric label="Products stocked" value={invRows.length} icon="package" detail="tracked here" />
+      </div>
+
+      <section className="panel" style={{ padding: 20, marginBottom: 18 }}>
+        <div className="panel-heading">
+          <div>
+            <h2>Capacity &amp; utilization</h2>
+            <p>How full this location is against its configured capacity</p>
+          </div>
+          {percent !== null && percent >= 90 ? (
+            <span className="status status-needs-attention">
+              <i /> Approaching capacity
+            </span>
+          ) : percent !== null ? (
+            <span className="status status-healthy">
+              <i /> Within capacity
+            </span>
+          ) : null}
+        </div>
+
+        {percent === null ? (
+          <div className="stock-note" style={{ marginTop: 16 }}>
+            <Gauge size={15} />
+            No capacity set for this location — set one to track utilization as stock moves in and out.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 16 }}>
+              <b
+                style={{
+                  fontFamily: 'Manrope',
+                  fontSize: 34,
+                  letterSpacing: '-1.4px',
+                  color: utilizationColor(percent),
+                }}
+              >
+                {percent}%
+              </b>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {onHand.toLocaleString()} of {capacity!.toLocaleString()} units
+              </span>
+            </div>
+            <div
+              style={{ height: 10, borderRadius: 6, background: '#f0edf6', overflow: 'hidden', marginTop: 10 }}
+              role="progressbar"
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                style={{
+                  width: `${Math.min(percent, 100)}%`,
+                  height: '100%',
+                  borderRadius: 6,
+                  background: utilizationColor(percent),
+                  transition: 'width .2s ease',
+                }}
+              />
+            </div>
+            {percent >= 90 && (
+              <div className="stock-note" style={{ marginTop: 12, color: '#a3561a', background: '#fff7ec' }}>
+                <AlertTriangle size={15} />
+                <b>Approaching capacity.</b>
+                {percent >= 100
+                  ? ' This location is at or over its limit — transfer stock out or raise the capacity.'
+                  : ' Consider transferring stock out or raising the capacity before it fills up.'}
+              </div>
+            )}
+          </>
+        )}
+
+        {canUpdate && (
+          <div style={{ marginTop: 14, borderTop: '1px solid #f0edf6', paddingTop: 14 }}>
+            <CapacityEditor locationId={String(location._id)} capacity={capacity} />
+          </div>
+        )}
+      </section>
+
       <div className="product-detail-grid">
         <section className="panel product-overview">
           <div className="product-hero-icon">
@@ -110,6 +223,10 @@ export default async function LocationDetailPage({ params }: LocationPageProps) 
           <div className="detail-kv">
             <span>Type</span>
             <b>{TYPE_LABELS[location.type] || location.type}</b>
+          </div>
+          <div className="detail-kv">
+            <span>Capacity</span>
+            <b>{capacity === null ? '—' : `${capacity.toLocaleString()} units`}</b>
           </div>
           <div className="detail-kv">
             <span>Status</span>

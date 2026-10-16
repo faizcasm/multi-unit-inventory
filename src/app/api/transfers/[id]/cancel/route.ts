@@ -8,6 +8,7 @@ import { cancelTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
 import { sendTransferNotification } from '@/lib/transfer-emails'
+import { fireTransferHooks } from '@/lib/transfer-hooks'
 import { Types } from 'mongoose'
 
 export async function POST(
@@ -208,6 +209,14 @@ export async function POST(
 
         await sendTransferNotification(transfer._id, 'CANCELLED', session.user.id)
 
+        await fireTransferHooks({
+          organization: session.user.organizationId,
+          event: 'transfer.cancelled',
+          transfer,
+          actorUserId: session.user.id,
+          notifyRoles: ['admin'],
+        })
+
         return NextResponse.json({ success: true, data: transfer })
       } catch (error) {
         await mongoSession.abortTransaction()
@@ -240,6 +249,14 @@ export async function POST(
       })
 
       await sendTransferNotification(transfer._id, 'CANCELLED', session.user.id)
+
+      await fireTransferHooks({
+        organization: session.user.organizationId,
+        event: 'transfer.cancelled',
+        transfer,
+        actorUserId: session.user.id,
+        notifyRoles: ['admin'],
+      })
 
       return NextResponse.json({ success: true, data: transfer })
     }

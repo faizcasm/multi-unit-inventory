@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Package, Search, SlidersHorizontal, AlertCircle, Plus } from 'lucide-react'
-import { PageHeading, Status, EmptyState } from '@/components/redesign/ui'
+import { Package, Search, SlidersHorizontal, AlertCircle, Plus, X, Lock, LockOpen } from 'lucide-react'
+import { PageHeading, Status, EmptyState, Toast } from '@/components/redesign/ui'
 import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
 import { apiFetch, ApiPagination } from '@/lib/api'
 import { useCan } from '@/hooks/useCan'
@@ -32,8 +32,65 @@ export default function InventoryPage() {
   const [pagination, setPagination] = useState<ApiPagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [toast, setToast] = useState('')
+
+  // Reserve / release modal
+  const [reservation, setReservation] = useState<{ item: InventoryItem; mode: 'reserve' | 'release' } | null>(null)
+  const [quantity, setQuantity] = useState('1')
+  const [adjustError, setAdjustError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const canAdjust = useCan('inventory:adjust')
+
+  const notify = (msg: string) => {
+    setToast(msg)
+    window.setTimeout(() => setToast(''), 3200)
+  }
+
+  const openReservation = (item: InventoryItem, mode: 'reserve' | 'release') => {
+    setReservation({ item, mode })
+    setQuantity('1')
+    setAdjustError('')
+  }
+
+  const submitReservation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!reservation) return
+    const max = reservation.mode === 'reserve' ? reservation.item.availableQuantity : reservation.item.reservedQuantity
+    const qty = parseInt(quantity, 10)
+    if (!Number.isInteger(qty) || qty < 1) {
+      setAdjustError('Enter a whole number of at least 1.')
+      return
+    }
+    if (qty > max) {
+      setAdjustError(`Quantity cannot exceed ${max}.`)
+      return
+    }
+    setBusy(true)
+    setAdjustError('')
+    try {
+      const res = await apiFetch(`/api/inventory/${reservation.mode === 'reserve' ? 'reserve' : 'release'}`, {
+        method: 'POST',
+        body: { inventoryId: reservation.item._id, quantity: qty },
+      })
+      if (!res.success) {
+        const firstDetail = res.details ? Object.values(res.details as Record<string, unknown>).flat()[0] : null
+        throw new Error((typeof firstDetail === 'string' ? firstDetail : null) || res.error || 'Request failed')
+      }
+      const product = reservation.item.product?.name || 'product'
+      notify(
+        reservation.mode === 'reserve'
+          ? `Reserved ${qty} unit${qty === 1 ? '' : 's'} of ${product}`
+          : `Released ${qty} unit${qty === 1 ? '' : 's'} of ${product}`
+      )
+      setReservation(null)
+      await fetchInventory()
+    } catch (err) {
+      setAdjustError(err instanceof Error ? err.message : 'Request failed')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -212,6 +269,7 @@ export default function InventoryPage() {
                   <th>In transit</th>
                   <th>Damaged</th>
                   <th>Stock status</th>
+                  {canAdjust && <th aria-label="Stock actions" style={{ textAlign: 'right' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -261,6 +319,27 @@ export default function InventoryPage() {
                     <td>
                       <Status value={statusOf(item)} />
                     </td>
+                    {canAdjust && (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button
+                          className="button button-secondary"
+                          style={{ marginRight: 6 }}
+                          onClick={() => openReservation(item, 'reserve')}
+                          disabled={busy || item.availableQuantity === 0}
+                          title={item.availableQuantity === 0 ? 'No available stock to reserve' : 'Move available stock into reserved'}
+                        >
+                          <Lock size={13} /> Reserve
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          onClick={() => openReservation(item, 'release')}
+                          disabled={busy || item.reservedQuantity === 0}
+                          title={item.reservedQuantity === 0 ? 'No reserved stock to release' : 'Return reserved stock to available'}
+                        >
+                          <LockOpen size={13} /> Release
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -277,6 +356,82 @@ export default function InventoryPage() {
           />
         )}
       </section>
+
+      {reservation && (
+        <div className="modal-backdrop" onClick={() => !busy && setReservation(null)}>
+          <form
+            className="create-modal"
+            style={{ width: 'min(430px, 100%)' }}
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={submitReservation}
+          >
+            <div className="modal-heading">
+              <div>
+                <div className="modal-kicker">{reservation.mode === 'reserve' ? 'RESERVE STOCK' : 'RELEASE STOCK'}</div>
+                <h2 style={{ fontFamily: 'Manrope', fontSize: 17, margin: '6px 0 0' }}>
+                  {reservation.mode === 'reserve' ? 'Reserve available units' : 'Release reserved units'}
+                </h2>
+                <p>
+                  {reservation.item.product?.name || 'Unnamed product'} · {reservation.item.location?.name || 'Unknown location'}
+                </p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setReservation(null)} aria-label="Close" disabled={busy}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <label className="settings-field" style={{ maxWidth: 'none' }}>
+              Quantity{' '}
+              <span style={{ fontWeight: 400, color: 'var(--muted)' }}>
+                (max{' '}
+                {reservation.mode === 'reserve'
+                  ? `${reservation.item.availableQuantity} available`
+                  : `${reservation.item.reservedQuantity} reserved`}
+                )
+              </span>
+              <div className="field-wrap">
+                {reservation.mode === 'reserve' ? <Lock size={16} /> : <LockOpen size={16} />}
+                <input
+                  type="number"
+                  min={1}
+                  max={
+                    reservation.mode === 'reserve'
+                      ? reservation.item.availableQuantity
+                      : reservation.item.reservedQuantity
+                  }
+                  required
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+              </div>
+            </label>
+
+            <div className="modal-footnote">
+              <SlidersHorizontal size={14} />
+              {reservation.mode === 'reserve'
+                ? 'Reserving moves units from available to reserved stock and records an inventory movement.'
+                : 'Releasing moves units from reserved back to available stock and records an inventory movement.'}
+            </div>
+
+            {adjustError && (
+              <div className="auth-message" style={{ background: '#fdeef0', borderColor: '#f6d3d9', color: '#a4404f' }}>
+                {adjustError}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button type="button" className="button button-secondary" onClick={() => setReservation(null)} disabled={busy}>
+                Cancel
+              </button>
+              <button type="submit" className="button button-primary" disabled={busy}>
+                {busy ? 'Saving…' : reservation.mode === 'reserve' ? 'Reserve stock' : 'Release stock'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <Toast message={toast} onClose={() => setToast('')} />
     </>
   )
 }

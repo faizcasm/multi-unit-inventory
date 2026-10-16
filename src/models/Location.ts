@@ -18,6 +18,7 @@ export interface ILocation extends Document {
   contactPerson?: string
   contactPhone?: string
   contactEmail?: string
+  capacity?: number
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -40,6 +41,7 @@ const LocationSchema = new Schema<ILocation>(
     contactPerson: { type: String, trim: true, maxlength: 100 },
     contactPhone: { type: String, trim: true, maxlength: 30 },
     contactEmail: { type: String, trim: true, lowercase: true, maxlength: 255 },
+    capacity: { type: Number, min: 0 },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

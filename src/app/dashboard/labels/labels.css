@@ -1,0 +1,181 @@
+/* Label printing (barcodes + QR) — screen preview & print sheet.
+   Hides the AppShell chrome (sidebar .app-sidebar, topbar .app-topbar,
+   footer .app-footer, mobile scrim .mobile-scrim) when printing. */
+
+.label-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 330px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .label-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.label-picker {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+
+.label-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.label-item:last-child {
+  border-bottom: 0;
+}
+
+.label-item input[type='checkbox'] {
+  flex-shrink: 0;
+  accent-color: #7c63e3;
+}
+
+.label-item-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.label-item-meta b {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-item-meta small {
+  display: block;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.label-qty {
+  width: 54px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.label-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.5in, 1fr));
+  gap: 14px;
+}
+
+.label-card {
+  width: 2.5in;
+  min-height: 1.5in;
+  box-sizing: border-box;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fff;
+  color: #191330;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.label-name {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-sku {
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  color: #6f6887;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-barcode {
+  width: 100%;
+  max-width: 2.15in;
+  height: 0.55in;
+}
+
+.label-qr {
+  width: 0.95in;
+  height: 0.95in;
+}
+
+.label-fallback {
+  font-size: 8.5px;
+  color: #a4404f;
+  text-align: center;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .app-sidebar,
+  .app-topbar,
+  .app-footer,
+  .mobile-scrim {
+    display: none !important;
+  }
+
+  .app-main {
+    margin-left: 0 !important;
+  }
+
+  .app-content {
+    padding: 0 !important;
+  }
+
+  .page-heading,
+  .back-row {
+    display: none !important;
+  }
+
+  .panel {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  .label-layout {
+    display: block;
+  }
+
+  .label-grid {
+    gap: 8px;
+  }
+
+  .label-card {
+    border: 1px solid #999;
+    box-shadow: none;
+    color: #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

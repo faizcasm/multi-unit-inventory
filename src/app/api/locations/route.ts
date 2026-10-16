@@ -4,7 +4,7 @@ import { Location } from '@/models/Location'
 import { Product } from '@/models/Product'
 import { Inventory } from '@/models/Inventory'
 import { auth } from '@/lib/auth/auth'
-import { locationSchema } from '@/lib/validation/schemas'
+import { locationCreateSchema } from '@/lib/validation/catalog'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
 import { Types } from 'mongoose'
@@ -59,7 +59,9 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .lean() as any
 
-    // Get inventory stats for each location
+    // Get inventory stats for each location (one aggregation for the org).
+    // `onHand` = available + reserved + damaged — feeds the capacity
+    // utilization figure attached to each location below.
     const locationIds = (locations as any).map((l: any) => l._id)
     const inventoryStats = await Inventory.aggregate([
       { $match: { organization: new Types.ObjectId(session.user.organizationId), location: { $in: locationIds } } },
@@ -68,6 +70,9 @@ export async function GET(request: NextRequest) {
           _id: '$location',
           productCount: { $sum: 1 },
           totalStock: { $sum: '$availableQuantity' },
+          onHand: {
+            $sum: { $add: ['$availableQuantity', '$reservedQuantity', '$damagedQuantity'] },
+          },
           lowStockCount: {
             $sum: {
               $cond: [{ $lt: ['$availableQuantity', 10] }, 1, 0],
@@ -78,15 +83,28 @@ export async function GET(request: NextRequest) {
     ])
 
     const statsMap = new Map(
-      inventoryStats.map((s) => [s._id.toString(), { productCount: s.productCount, totalStock: s.totalStock, lowStockCount: s.lowStockCount }])
+      inventoryStats.map((s) => [
+        s._id.toString(),
+        { productCount: s.productCount, totalStock: s.totalStock, lowStockCount: s.lowStockCount, onHand: s.onHand },
+      ])
     )
 
-    const locationsWithStats = locations.map((loc: any) => ({
-      ...loc,
-      productCount: statsMap.get(loc._id.toString())?.productCount || 0,
-      totalStock: statsMap.get(loc._id.toString())?.totalStock || 0,
-      lowStockCount: statsMap.get(loc._id.toString())?.lowStockCount || 0,
-    }))
+    const locationsWithStats = locations.map((loc: any) => {
+      const stats = statsMap.get(loc._id.toString())
+      const onHand = stats?.onHand || 0
+      const capacity = typeof loc.capacity === 'number' ? loc.capacity : null
+      return {
+        ...loc,
+        productCount: stats?.productCount || 0,
+        totalStock: stats?.totalStock || 0,
+        lowStockCount: stats?.lowStockCount || 0,
+        utilization: {
+          onHand,
+          capacity,
+          percent: capacity && capacity > 0 ? Math.round((onHand / capacity) * 100) : null,
+        },
+      }
+    })
 
     return NextResponse.json({
       success: true,
@@ -118,7 +136,7 @@ export async function POST(request: NextRequest) {
     await connectDB()
 
     const body = await request.json()
-    const parsed = locationSchema.safeParse(body)
+    const parsed = locationCreateSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(

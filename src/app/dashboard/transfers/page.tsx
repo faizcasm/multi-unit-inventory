@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Truck, Search, Plus, ArrowRight, CalendarDays, AlertCircle } from 'lucide-react'
-import { PageHeading, Metric, Status, EmptyState } from '@/components/redesign/ui'
+import { useRouter } from 'next/navigation'
+import { Truck, Search, Plus, ArrowRight, CalendarDays, AlertCircle, Copy } from 'lucide-react'
+import { PageHeading, Metric, Status, EmptyState, Toast } from '@/components/redesign/ui'
 import { Pagination, CsvExportButton } from '@/components/redesign/TableBits'
 import { apiFetch, ApiPagination } from '@/lib/api'
 import { useCan } from '@/hooks/useCan'
@@ -33,6 +34,7 @@ const statusLabel = (status: string) =>
     .replace(/\b\w/g, (c) => c.toUpperCase())
 
 export default function TransfersPage() {
+  const router = useRouter()
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<Tab>('All')
@@ -41,8 +43,32 @@ export default function TransfersPage() {
   const [counts, setCounts] = useState({ all: 0, progress: 0, completed: 0, review: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [duplicatingId, setDuplicatingId] = useState('')
+  const [toast, setToast] = useState('')
 
   const canCreate = useCan('transfers:create')
+
+  const notify = (msg: string) => {
+    setToast(msg)
+    window.setTimeout(() => setToast(''), 3500)
+  }
+
+  /** Copy a transfer into a fresh DRAFT and open it. */
+  const duplicateTransfer = async (transfer: Transfer) => {
+    if (duplicatingId) return
+    setDuplicatingId(transfer._id)
+    try {
+      const res = await apiFetch<Transfer>(`/api/transfers/${transfer._id}/duplicate`, { method: 'POST' })
+      const created = res.data
+      if (!res.success || !created) throw new Error(res.error || 'Failed to duplicate transfer')
+      notify(`Duplicated as ${created.reference}`)
+      router.push(`/dashboard/transfers/${created._id}`)
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Failed to duplicate transfer')
+    } finally {
+      setDuplicatingId('')
+    }
+  }
 
   // The API only accepts a single status, so "In progress" (a group of
   // statuses) stays a client-side filter over the fetched page.
@@ -266,9 +292,22 @@ export default function TransfersPage() {
                       <Status value={transfer.status} />
                     </td>
                     <td>
-                      <Link href={`/dashboard/transfers/${transfer._id}`} className="subtle-link">
-                        Open <ArrowRight size={13} />
-                      </Link>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                        {canCreate && (
+                          <button
+                            className="button button-secondary button-small"
+                            title="Duplicate transfer"
+                            aria-label={`Duplicate transfer ${transfer.reference}`}
+                            disabled={duplicatingId === transfer._id}
+                            onClick={() => duplicateTransfer(transfer)}
+                          >
+                            <Copy size={13} />
+                          </button>
+                        )}
+                        <Link href={`/dashboard/transfers/${transfer._id}`} className="subtle-link">
+                          Open <ArrowRight size={13} />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -287,6 +326,8 @@ export default function TransfersPage() {
           />
         )}
       </section>
+
+      <Toast message={toast} onClose={() => setToast('')} />
     </>
   )
 }

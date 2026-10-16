@@ -7,9 +7,24 @@ import { Location } from '@/models/Location'
 import { userRegistrationSchema } from '@/lib/validation/schemas'
 import bcrypt from 'bcryptjs'
 import { UserRole } from '@/models/User'
+import { AuditEvent } from '@/models/AuditEvent'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    // Throttle FIRST: 30/hour per ip, counting ALL attempts (including
+    // validation failures) so probes cannot slip through uncounted.
+    const ip = clientIp(request)
+    const rl = rateLimit(`reg:${ip}`, { limit: 30, windowMs: 60 * 60 * 1000 })
+    if (!rl.ok) {
+      const seconds = Math.max(1, Math.ceil(rl.retryAfterSec))
+      const minutes = Math.max(1, Math.ceil(seconds / 60))
+      return NextResponse.json(
+        { success: false, error: `Too many attempts. Try again in ${minutes} minute(s).` },
+        { status: 429, headers: { 'Retry-After': String(seconds) } }
+      )
+    }
+
     await connectDB()
 
     const body = await request.json()
@@ -95,13 +110,40 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      await Membership.create({
+      const membership = await Membership.create({
         user: joiner._id,
         organization: inviteOrg._id,
         role: invite.role,
         locationPermissions: [],
         isActive: true,
       })
+
+      // Best-effort audit — never fails the registration.
+      try {
+        const ua = request.headers.get('user-agent') || undefined
+        await AuditEvent.create({
+          organization: inviteOrg._id,
+          user: joiner._id,
+          action: 'USER_REGISTER',
+          resourceType: 'user',
+          resourceId: joiner._id,
+          metadata: { email: joiner.email, joinedVia: 'invite' },
+          ipAddress: ip,
+          userAgent: ua,
+        })
+        await AuditEvent.create({
+          organization: inviteOrg._id,
+          user: joiner._id,
+          action: 'MEMBERSHIP_CREATE',
+          resourceType: 'membership',
+          resourceId: membership._id,
+          metadata: { role: invite.role, joinedVia: 'invite' },
+          ipAddress: ip,
+          userAgent: ua,
+        })
+      } catch (auditError) {
+        console.error('Registration audit error:', auditError)
+      }
 
       const ROLE_LABELS: Record<string, string> = {
         admin: 'Workspace admin',
@@ -175,7 +217,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Create admin membership
-    await Membership.create({
+    const membership = await Membership.create({
       user: user._id,
       organization: organization._id,
       role: 'admin',
@@ -191,6 +233,43 @@ export async function POST(request: NextRequest) {
       type: 'warehouse',
       isActive: true,
     })
+
+    // Best-effort audit — never fails the registration.
+    try {
+      const ua = request.headers.get('user-agent') || undefined
+      await AuditEvent.create({
+        organization: organization._id,
+        user: user._id,
+        action: 'USER_REGISTER',
+        resourceType: 'user',
+        resourceId: user._id,
+        metadata: { email: user.email },
+        ipAddress: ip,
+        userAgent: ua,
+      })
+      await AuditEvent.create({
+        organization: organization._id,
+        user: user._id,
+        action: 'ORG_CREATE',
+        resourceType: 'organization',
+        resourceId: organization._id,
+        metadata: { name: organization.name, slug: organization.slug },
+        ipAddress: ip,
+        userAgent: ua,
+      })
+      await AuditEvent.create({
+        organization: organization._id,
+        user: user._id,
+        action: 'MEMBERSHIP_CREATE',
+        resourceType: 'membership',
+        resourceId: membership._id,
+        metadata: { role: 'admin' },
+        ipAddress: ip,
+        userAgent: ua,
+      })
+    } catch (auditError) {
+      console.error('Registration audit error:', auditError)
+    }
 
     return NextResponse.json(
       {

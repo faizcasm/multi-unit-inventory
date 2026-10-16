@@ -8,6 +8,7 @@ import { auth } from '@/lib/auth/auth'
 import { createTransferSchema, paginationSchema, filterSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { fireTransferHooks } from '@/lib/transfer-hooks'
 import { Types } from 'mongoose'
 
 export async function GET(request: NextRequest) {
@@ -203,6 +204,15 @@ export async function POST(request: NextRequest) {
       resourceType: 'StockTransfer',
       resourceId: transfer._id,
       metadata: { reference, sourceLocation: sourceLocationId, destinationLocation: destinationLocationId, lineItemsCount: lineItems.length },
+    })
+
+    await fireTransferHooks({
+      organization: session.user.organizationId,
+      event: 'transfer.created',
+      transfer,
+      actorUserId: session.user.id,
+      notifyRequester: false,
+      notifyRoles: ['approver', 'admin', 'inventory_manager'],
     })
 
     return NextResponse.json({ success: true, data: transfer }, { status: 201 })

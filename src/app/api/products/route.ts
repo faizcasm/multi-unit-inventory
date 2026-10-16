@@ -4,9 +4,11 @@ import { Product } from '@/models/Product'
 import { Inventory } from '@/models/Inventory'
 import { Location } from '@/models/Location'
 import { auth } from '@/lib/auth/auth'
-import { productSchema } from '@/lib/validation/schemas'
+import { productCreateSchema } from '@/lib/validation/catalog'
+import { Supplier } from '@/models/Supplier'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { dispatchWebhook } from '@/lib/webhooks'
 import { Types } from 'mongoose'
 import { paginationSchema, filterSchema } from '@/lib/validation/schemas'
 
@@ -29,8 +31,16 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const category = searchParams.get('category') || ''
     const isActive = searchParams.get('isActive')
+    const supplierId = searchParams.get('supplierId') || ''
 
     const query: any = { organization: session.user.organizationId }
+
+    if (supplierId) {
+      if (!Types.ObjectId.isValid(supplierId)) {
+        return NextResponse.json({ success: false, error: 'Invalid supplier ID' }, { status: 400 })
+      }
+      query.supplier = new Types.ObjectId(supplierId)
+    }
 
     if (search) {
       query.$or = [
@@ -146,13 +156,27 @@ export async function POST(request: NextRequest) {
     await connectDB()
 
     const body = await request.json()
-    const parsed = productSchema.safeParse(body)
+    const parsed = productCreateSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors },
         { status: 400 }
       )
+    }
+
+    // Validate the optional supplier reference (must exist in this org).
+    if (parsed.data.supplier) {
+      if (!Types.ObjectId.isValid(parsed.data.supplier)) {
+        return NextResponse.json({ success: false, error: 'Invalid supplier' }, { status: 400 })
+      }
+      const supplierExists = await Supplier.exists({
+        _id: parsed.data.supplier,
+        organization: session.user.organizationId,
+      })
+      if (!supplierExists) {
+        return NextResponse.json({ success: false, error: 'Invalid supplier' }, { status: 400 })
+      }
     }
 
     // Check for duplicate SKU
@@ -166,6 +190,7 @@ export async function POST(request: NextRequest) {
 
     const product = await Product.create({
       ...parsed.data,
+      supplier: parsed.data.supplier || undefined,
       organization: session.user.organizationId,
       sku: parsed.data.sku.toUpperCase(),
     })
@@ -177,7 +202,25 @@ export async function POST(request: NextRequest) {
       action: 'PRODUCT_CREATE',
       resourceType: 'Product',
       resourceId: product._id,
-      metadata: { name: product.name, sku: product.sku, category: product.category },
+      metadata: {
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        supplier: product.supplier ?? null,
+        unitCost: product.unitCost ?? 0,
+      },
+    })
+
+    await dispatchWebhook({
+      organization: session.user.organizationId,
+      event: 'product.created',
+      payload: {
+        productId: String(product._id),
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        unitCost: product.unitCost ?? 0,
+      },
     })
 
     return NextResponse.json({ success: true, data: product }, { status: 201 })

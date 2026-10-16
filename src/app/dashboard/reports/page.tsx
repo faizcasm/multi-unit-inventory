@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, CalendarDays, Download, FileText, Search } from 'lucide-react'
-import { PageHeading, EmptyState, Toast } from '@/components/redesign/ui'
+import { AlertCircle, CalendarDays, Download, FileText, Search, Boxes, Package, Gauge, TrendingUp } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { PageHeading, EmptyState, Toast, Metric } from '@/components/redesign/ui'
+import { formatCurrency } from '@/lib/utils/helpers'
 
 const reportTypes = [
   { value: 'stock', label: 'Current stock by location' },
@@ -10,6 +12,8 @@ const reportTypes = [
   { value: 'transfers', label: 'Transfer history' },
   { value: 'discrepancies', label: 'Transfer discrepancies' },
   { value: 'movements', label: 'Inventory movement history' },
+  { value: 'valuation', label: 'Inventory valuation' },
+  { value: 'forecast', label: 'Demand forecast' },
 ]
 
 export default function ReportsPage() {
@@ -93,6 +97,43 @@ export default function ReportsPage() {
   }
 
   const keys = reportData.length > 0 ? Object.keys(reportData[0]) : []
+
+  // Client-side rollups for the valuation report.
+  const valuationStats =
+    reportType === 'valuation'
+      ? {
+          totalValue: reportData.reduce((sum, row) => sum + (Number(row.totalValue) || 0), 0),
+          onHand: reportData.reduce((sum, row) => sum + (Number(row.onHand) || 0), 0),
+          skus: new Set(reportData.map((row) => row.sku).filter(Boolean)).size,
+        }
+      : null
+
+  // Client-side rollups for the demand forecast report (the API keeps its
+  // row-based contract so CSV export stays unchanged — totals are computed here).
+  const forecastStats =
+    reportType === 'forecast' && reportData.length > 0
+      ? (() => {
+          const projectedTotal = reportData.reduce((sum, row) => sum + (Number(row.projected30d) || 0), 0)
+          const trends = reportData
+            .map((row) => (row.trendPct === null || row.trendPct === undefined ? null : Number(row.trendPct)))
+            .filter((t): t is number => t !== null && Number.isFinite(t))
+          return {
+            tracked: reportData.length,
+            below: reportData.filter((row) => row.status === 'below').length,
+            projectedTotal,
+            avgTrend: trends.length ? Math.round((trends.reduce((a, b) => a + b, 0) / trends.length) * 10) / 10 : null,
+          }
+        })()
+      : null
+
+  // Top 10 products by projected 30-day demand for the bar chart.
+  const forecastChart = forecastStats
+    ? reportData
+        .slice()
+        .sort((a, b) => (Number(b.projected30d) || 0) - (Number(a.projected30d) || 0))
+        .slice(0, 10)
+        .map((row) => ({ label: String(row.sku || row.name).slice(0, 12), units: Number(row.projected30d) || 0 }))
+    : []
 
   return (
     <>
@@ -191,6 +232,91 @@ export default function ReportsPage() {
           </div>
         )}
       </section>
+
+      {valuationStats && (
+        <div className="metric-grid compact-metrics">
+          <Metric
+            label="Total valuation"
+            value={formatCurrency(valuationStats.totalValue)}
+            icon={Boxes}
+            tone="purple"
+            detail="across all listed stock"
+          />
+          <Metric
+            label="Total on-hand units"
+            value={valuationStats.onHand.toLocaleString()}
+            icon={Package}
+            tone="blue"
+            detail="available + reserved + in transit + damaged"
+          />
+          <Metric
+            label="SKU count"
+            value={valuationStats.skus}
+            icon={Gauge}
+            tone="mint"
+            detail="distinct products valued"
+          />
+        </div>
+      )}
+
+      {forecastStats && (
+        <>
+          <div className="metric-grid compact-metrics">
+            <Metric
+              label="Products tracked"
+              value={forecastStats.tracked.toLocaleString()}
+              icon={Package}
+              tone="purple"
+              detail="active products in this forecast"
+            />
+            <Metric
+              label="Below threshold"
+              value={forecastStats.below.toLocaleString()}
+              icon={AlertCircle}
+              tone="orange"
+              detail="at or under reorder point"
+            />
+            <Metric
+              label="Projected demand 30d"
+              value={forecastStats.projectedTotal.toLocaleString()}
+              icon={Boxes}
+              tone="blue"
+              detail="units expected over the next month"
+            />
+            <Metric
+              label="Avg trend"
+              value={forecastStats.avgTrend === null ? '—' : `${forecastStats.avgTrend > 0 ? '+' : ''}${forecastStats.avgTrend}%`}
+              icon={TrendingUp}
+              tone="mint"
+              detail="30d vs. previous 30d window"
+            />
+          </div>
+
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Projected demand — top 10 products</h2>
+                <p>Expected 30-day unit demand based on recent velocity</p>
+              </div>
+            </div>
+            <div style={{ height: 260, padding: '0 20px 20px' }}>
+              {forecastChart.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={forecastChart}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+                    <XAxis dataKey="label" fontSize={11} stroke="var(--muted)" />
+                    <YAxis fontSize={11} stroke="var(--muted)" />
+                    <Tooltip />
+                    <Bar dataKey="units" fill="#8066ed" name="Projected units" radius={[5, 5, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="empty-state">No demand data yet</div>
+              )}
+            </div>
+          </section>
+        </>
+      )}
 
       <section className="panel table-panel">
         <div className="panel-heading">

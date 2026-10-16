@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { PageHeading, Status, Toast } from '@/components/redesign/ui'
+import TransferComments from '@/components/transfers/TransferComments'
 import { useCan } from '@/hooks/useCan'
 
 const NO_PERM_TITLE = "Your role can't perform this action"
@@ -74,6 +75,7 @@ export default function TransferDetailPage() {
   const canDispatch = useCan('transfers:dispatch')
   const canReceive = useCan('transfers:receive')
   const canCancel = useCan('transfers:cancel')
+  const canComment = useCan('transfers:read')
   const can: Record<string, boolean> = {
     submit: canSubmit,
     approve: canApprove,
@@ -499,6 +501,16 @@ export default function TransferDetailPage() {
           </div>
         </section>
       )}
+
+      <section className="panel table-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Discussion</h2>
+            <p>Comments and notes from your team</p>
+          </div>
+        </div>
+        <TransferComments transferId={id} canComment={canComment} />
+      </section>
 
       {action && (
         <div className="modal-backdrop" onClick={() => !busy && setAction(null)}>

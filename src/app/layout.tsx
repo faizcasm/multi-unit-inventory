@@ -15,6 +15,12 @@ export const metadata: Metadata = {
     'Move stock with clarity and control. Ricoz brings your products, locations, and transfer workflows into one calmer, more accountable workspace.',
   keywords: ['inventory', 'warehouse', 'stock management', 'transfer', 'multi-location'],
   authors: [{ name: 'Ricoz Inventory' }],
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Ricoz Inventory',
+  },
   openGraph: {
     type: 'website',
     locale: 'en_US',

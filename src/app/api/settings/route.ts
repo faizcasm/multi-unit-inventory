@@ -11,6 +11,19 @@ const userPreferencesSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']).optional(),
   notifications: z.object({ email: z.boolean(), inApp: z.boolean() }).optional(),
   dashboardLayout: z.enum(['compact', 'comfortable']).optional(),
+  /** Dashboard widget visibility + ordering (see dashboard widget catalog). */
+  widgets: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        visible: z.boolean(),
+        order: z.number().int().min(0).max(99),
+      })
+    )
+    .max(24)
+    .optional(),
+  /** Set once the user dismisses the getting-started checklist. */
+  onboardingDismissed: z.boolean().optional(),
 })
 
 const orgSettingsSchema = z.object({
@@ -82,9 +95,20 @@ export async function PATCH(request: NextRequest) {
         )
       }
 
-      await User.findByIdAndUpdate(session.user.id, {
-        $set: { preferences: parsed.data },
-      })
+      // Patch only the provided keys. `preferences` is a nested path, so
+      // `$set: { preferences: parsed.data }` would replace the whole object and
+      // wipe untouched preferences (theme, notifications, ...) on partial saves.
+      const setOps: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (value !== undefined) setOps[`preferences.${key}`] = value
+      }
+
+      // MongoDB rejects an empty `$set` (e.g. `userPreferences: {}`).
+      if (Object.keys(setOps).length > 0) {
+        await User.findByIdAndUpdate(session.user.id, {
+          $set: setOps,
+        })
+      }
     }
 
     // Update organization settings (admin only)

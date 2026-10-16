@@ -8,6 +8,7 @@ import { approveTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer, canApproveOwnTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
 import { sendTransferNotification } from '@/lib/transfer-emails'
+import { fireTransferHooks } from '@/lib/transfer-hooks'
 import { Organization } from '@/models/Organization'
 import { Types } from 'mongoose'
 
@@ -140,6 +141,13 @@ export async function POST(
     })
 
     await sendTransferNotification(transfer._id, 'APPROVED', session.user.id)
+
+    await fireTransferHooks({
+      organization: session.user.organizationId,
+      event: 'transfer.approved',
+      transfer,
+      actorUserId: session.user.id,
+    })
 
     return NextResponse.json({ success: true, data: transfer })
   } catch (error) {

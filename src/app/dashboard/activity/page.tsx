@@ -49,6 +49,31 @@ const ACTION_LABELS: Record<string, string> = {
   MEMBERSHIP_UPDATE: 'Member updated',
   MEMBERSHIP_REMOVE: 'Member removed',
   SETTINGS_UPDATE: 'Settings updated',
+  SUPPLIER_CREATE: 'Supplier added',
+  SUPPLIER_UPDATE: 'Supplier updated',
+  SUPPLIER_DEACTIVATE: 'Supplier deactivated',
+  PURCHASE_ORDER_CREATE: 'Purchase order created',
+  PURCHASE_ORDER_UPDATE: 'Purchase order updated',
+  PURCHASE_ORDER_RECEIVE: 'Purchase order received',
+  PURCHASE_ORDER_CANCEL: 'Purchase order cancelled',
+  STOCKTAKE_CREATE: 'Count sheet created',
+  STOCKTAKE_UPDATE: 'Count sheet updated',
+  STOCKTAKE_COUNT: 'Counts saved',
+  STOCKTAKE_POST: 'Stocktake posted',
+  STOCKTAKE_VOID: 'Stocktake voided',
+  PRODUCT_IMPORT: 'Products imported from CSV',
+  LOCATION_IMPORT: 'Locations imported from CSV',
+  INVENTORY_RESERVE: 'Stock reserved',
+  INVENTORY_RELEASE: 'Reservation released',
+  TRANSFER_DUPLICATE: 'Transfer duplicated',
+  TRANSFER_COMMENT: 'Comment added to transfer',
+  WEBHOOK_CREATE: 'Webhook added',
+  WEBHOOK_UPDATE: 'Webhook updated',
+  WEBHOOK_DELETE: 'Webhook removed',
+  WEBHOOK_TEST: 'Webhook test sent',
+  APIKEY_CREATE: 'API key created',
+  APIKEY_DELETE: 'API key revoked',
+  DEMO_DATA_CREATE: 'Demo data seeded',
 }
 
 type GroupKey =
@@ -56,6 +81,9 @@ type GroupKey =
   | 'INVENTORY'
   | 'PRODUCT'
   | 'LOCATION'
+  | 'PURCHASE_ORDER'
+  | 'STOCKTAKE'
+  | 'SUPPLIER'
   | 'USER'
   | 'MEMBERSHIP'
   | 'ORG'
@@ -68,6 +96,9 @@ const GROUP_PREFIXES: GroupKey[] = [
   'INVENTORY',
   'PRODUCT',
   'LOCATION',
+  'PURCHASE_ORDER',
+  'STOCKTAKE',
+  'SUPPLIER',
   'MEMBERSHIP',
   'USER',
   'ORG',
@@ -80,6 +111,9 @@ const GROUP_TONE: Record<GroupKey, { label: string; chip: CSSProperties }> = {
   INVENTORY: { label: 'Inventory', chip: { background: 'var(--green-soft)', color: 'var(--green)' } },
   PRODUCT: { label: 'Products', chip: { background: 'var(--violet-soft)', color: 'var(--violet)' } },
   LOCATION: { label: 'Locations', chip: { background: 'var(--orange-soft)', color: 'var(--orange)' } },
+  PURCHASE_ORDER: { label: 'Purchasing', chip: { background: 'var(--violet-soft)', color: 'var(--violet)' } },
+  STOCKTAKE: { label: 'Stocktakes', chip: { background: 'var(--blue-soft)', color: 'var(--blue)' } },
+  SUPPLIER: { label: 'Suppliers', chip: { background: 'var(--orange-soft)', color: 'var(--orange)' } },
   USER: { label: 'People', chip: { background: 'var(--line)', color: 'var(--muted)' } },
   MEMBERSHIP: { label: 'People', chip: { background: 'var(--line)', color: 'var(--muted)' } },
   ORG: {
@@ -103,6 +137,9 @@ const GROUP_FILTERS: { key: string; label: string }[] = [
   { key: 'INVENTORY', label: 'Inventory' },
   { key: 'PRODUCT', label: 'Products' },
   { key: 'LOCATION', label: 'Locations' },
+  { key: 'PURCHASE_ORDER', label: 'Purchasing' },
+  { key: 'STOCKTAKE', label: 'Stocktakes' },
+  { key: 'SUPPLIER', label: 'Suppliers' },
   { key: 'USER', label: 'People' },
   { key: 'SETTINGS', label: 'Settings' },
 ]

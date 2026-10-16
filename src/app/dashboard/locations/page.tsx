@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, FormEvent } from 'react'
+import { useEffect, useState, FormEvent, CSSProperties } from 'react'
 import Link from 'next/link'
 import {
   Warehouse,
@@ -23,6 +23,8 @@ interface Location {
   type: string
   address?: { street?: string; city?: string; state?: string; country?: string }
   description?: string
+  capacity?: number | null
+  utilization?: { onHand: number; capacity: number | null; percent: number | null }
   isActive: boolean
   createdAt: string
   productCount: number
@@ -41,6 +43,63 @@ const TYPE_COLORS = ['lavender', 'mint', 'peach', 'blue']
 
 const PAGE_SIZE = 20
 
+/** Utilization bar color: mint <70%, orange 70–90%, red >90%. */
+function utilizationColor(percent: number): string {
+  if (percent < 70) return '#23835c'
+  if (percent <= 90) return '#b96b16'
+  return '#c55c50'
+}
+
+function UtilizationBar({ utilization }: { utilization?: Location['utilization'] }) {
+  const capacity = utilization?.capacity ?? null
+  const onHand = utilization?.onHand ?? 0
+  const percent = utilization?.percent ?? null
+  const labelStyle: CSSProperties = { fontSize: 8, fontWeight: 800, letterSpacing: '.8px', color: '#a09bad' }
+  if (!capacity || capacity <= 0 || percent === null) {
+    return (
+      <div style={{ marginTop: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={labelStyle}>UTILIZATION</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#a09bad' }}>—</span>
+        </div>
+        <div style={{ height: 6, borderRadius: 4, background: '#f0edf6', overflow: 'hidden', marginTop: 6 }}>
+          <div style={{ width: '0%', height: '100%' }} />
+        </div>
+        <small style={{ display: 'block', fontSize: 9, color: '#a39eaf', marginTop: 5 }}>No capacity set</small>
+      </div>
+    )
+  }
+  const clamped = Math.min(percent, 100)
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={labelStyle}>UTILIZATION</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: utilizationColor(percent) }}>{percent}%</span>
+      </div>
+      <div
+        style={{ height: 6, borderRadius: 4, background: '#f0edf6', overflow: 'hidden', marginTop: 6 }}
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div
+          style={{
+            width: `${clamped}%`,
+            height: '100%',
+            borderRadius: 4,
+            background: utilizationColor(percent),
+            transition: 'width .2s ease',
+          }}
+        />
+      </div>
+      <small style={{ display: 'block', fontSize: 9, color: '#a39eaf', marginTop: 5 }}>
+        {onHand.toLocaleString()} / {capacity.toLocaleString()} units
+      </small>
+    </div>
+  )
+}
+
 export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([])
   const [search, setSearch] = useState('')
@@ -58,6 +117,7 @@ export default function LocationsPage() {
   const [code, setCode] = useState('')
   const [type, setType] = useState('warehouse')
   const [city, setCity] = useState('')
+  const [capacity, setCapacity] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -110,6 +170,7 @@ export default function LocationsPage() {
           code: code.toUpperCase(),
           type,
           address: city ? { city } : undefined,
+          ...(capacity !== '' ? { capacity: Math.max(0, parseFloat(capacity) || 0) } : {}),
         }),
       })
       const data = await response.json()
@@ -121,6 +182,7 @@ export default function LocationsPage() {
         setName('')
         setCode('')
         setCity('')
+        setCapacity('')
         setType('warehouse')
         fetchLocations()
       }
@@ -153,6 +215,9 @@ export default function LocationsPage() {
                 { key: 'type', header: 'Type' },
                 { key: 'city', header: 'City' },
                 { key: 'country', header: 'Country' },
+                { key: 'capacity', header: 'Capacity' },
+                { key: 'onHand', header: 'On hand' },
+                { key: 'utilization', header: 'Utilization %' },
                 { key: 'active', header: 'Active' },
               ]}
               mapRow={(row) => ({
@@ -161,6 +226,9 @@ export default function LocationsPage() {
                 type: locationTypeLabels[row.type] || row.type,
                 city: row.address?.city || '',
                 country: row.address?.country || '',
+                capacity: row.capacity ?? '',
+                onHand: row.utilization?.onHand ?? '',
+                utilization: row.utilization?.percent ?? '',
                 active: row.isActive ? 'Yes' : 'No',
               })}
             />
@@ -268,6 +336,7 @@ export default function LocationsPage() {
                   <small>Units on hand</small>
                 </div>
               </div>
+              <UtilizationBar utilization={location.utilization} />
               <div className="location-card-footer">
                 <Status value={location.isActive ? 'Healthy' : 'Needs attention'} />
                 <Link href={`/dashboard/locations/${location._id}`} className="subtle-link">
@@ -370,6 +439,23 @@ export default function LocationsPage() {
                     maxLength={100}
                   />
                 </div>
+              </label>
+              <label>
+                Capacity <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span>
+                <div className="field-wrap">
+                  <Warehouse size={16} />
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    placeholder="Total units this location can hold"
+                    value={capacity}
+                    onChange={(e) => setCapacity(e.target.value)}
+                  />
+                </div>
+                <small style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 9 }}>
+                  Leave empty if this location has no fixed capacity.
+                </small>
               </label>
 
               {formError && (

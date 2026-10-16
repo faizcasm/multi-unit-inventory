@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   ChevronRight,
+  History,
   KeyRound,
   LockKeyhole,
   Monitor,
@@ -32,6 +33,14 @@ interface OrgSettings {
 }
 
 type Tab = 'Workspace' | 'Preferences' | 'Notifications' | 'Security'
+
+interface LoginHistoryItem {
+  _id: string
+  status: 'success' | 'failed'
+  ipAddress?: string
+  userAgent?: string
+  createdAt: string
+}
 
 const TABS: { label: Tab; icon: React.ElementType }[] = [
   { label: 'Workspace', icon: Building2 },
@@ -95,6 +104,10 @@ export default function SettingsPage() {
   const [pwdNew, setPwdNew] = useState('')
   const [pwdConfirm, setPwdConfirm] = useState('')
   const [pwdSaving, setPwdSaving] = useState(false)
+  const [loginEvents, setLoginEvents] = useState<LoginHistoryItem[]>([])
+  const [loginHistoryState, setLoginHistoryState] = useState<'loading' | 'ready' | 'error'>(
+    'loading'
+  )
 
   const notify = (msg: string) => {
     setToast(msg)
@@ -123,6 +136,30 @@ export default function SettingsPage() {
       }
     }
     fetchSettings()
+  }, [])
+
+  // Fetch sign-in history once on page mount and cache it in state.
+  useEffect(() => {
+    let cancelled = false
+    const fetchLoginHistory = async () => {
+      try {
+        const response = await fetch('/api/auth/login-history')
+        const data = await response.json()
+        if (cancelled) return
+        if (!response.ok) throw new Error(data.error || 'Failed to load sign-ins')
+        setLoginEvents(Array.isArray(data.data) ? data.data : [])
+        setLoginHistoryState('ready')
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to load sign-in history:', err)
+          setLoginHistoryState('error')
+        }
+      }
+    }
+    fetchLoginHistory()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleSave = async () => {
@@ -429,6 +466,87 @@ export default function SettingsPage() {
                   <span>Audit trail</span>
                   <b>Enabled</b>
                 </div>
+              </div>
+
+              <div className="settings-info-block" style={{ marginTop: 18 }}>
+                <History size={20} />
+                <b>Recent sign-ins</b>
+                <p>Your latest sign-in attempts, newest first.</p>
+                {loginHistoryState === 'loading' ? (
+                  <div className="empty-state" style={{ padding: '14px 0' }}>
+                    Loading sign-ins…
+                  </div>
+                ) : loginHistoryState === 'error' ? (
+                  <div className="empty-state" style={{ padding: '14px 0' }}>
+                    Couldn&apos;t load your sign-in history. Try again later.
+                  </div>
+                ) : loginEvents.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '14px 0' }}>
+                    No sign-in activity recorded yet.
+                  </div>
+                ) : (
+                  <div>
+                    {loginEvents.map((event) => (
+                      <div
+                        key={event._id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          flexWrap: 'wrap',
+                          padding: '9px 0',
+                          borderTop: '1px solid #f1eef7',
+                          fontSize: 11,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: '#898498',
+                            minWidth: 140,
+                            fontFamily: 'ui-monospace, monospace',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {new Date(event.createdAt).toLocaleString()}
+                        </span>
+                        <span
+                          className={`status ${
+                            event.status === 'success' ? 'status-completed' : 'status-rejected'
+                          }`}
+                        >
+                          {event.status === 'success' ? 'Success' : 'Failed'}
+                        </span>
+                        <span
+                          style={{
+                            color: '#7d788f',
+                            fontFamily: 'ui-monospace, monospace',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {event.ipAddress || '—'}
+                        </span>
+                        <span
+                          title={event.userAgent || 'Unknown device'}
+                          style={{
+                            flex: 1,
+                            minWidth: 120,
+                            color: '#a09bad',
+                            fontFamily: 'ui-monospace, monospace',
+                            fontSize: 10.5,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {event.userAgent ? event.userAgent.slice(0, 120) : 'Unknown device'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <small style={{ display: 'block', marginTop: 10, color: '#a09bad', fontSize: 11 }}>
+                  Brute-force protection is active: repeated failed sign-ins are rate-limited.
+                </small>
               </div>
             </>
           )}

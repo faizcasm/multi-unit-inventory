@@ -13,19 +13,28 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  ClipboardCheck,
+  ClipboardList,
+  FileUp,
+  Handshake,
   LayoutDashboard,
   LifeBuoy,
+  LineChart,
   LogOut,
   Menu,
   Moon,
   MoreHorizontal,
   Package,
+  PackagePlus,
+  Plug,
   Plus,
+  QrCode,
   ScrollText,
   Search,
   Settings,
   Sparkles,
   Sun,
+  Tags,
   Truck,
   Users,
   Warehouse,
@@ -36,6 +45,7 @@ import { apiFetch } from '@/lib/api'
 import { hasPermission } from '@/lib/permissions/matrix'
 import type { Permission } from '@/lib/permissions/matrix'
 import type { UserRole } from '@/models/User'
+import { ShortcutProvider } from '@/components/shortcuts'
 
 type NavItem = { href: string; label: string; icon: React.ElementType; permission?: Permission }
 
@@ -53,6 +63,10 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'OPERATIONS',
     items: [
       { href: '/dashboard/locations', label: 'Locations', icon: Warehouse },
+      { href: '/dashboard/suppliers', label: 'Suppliers', icon: Handshake, permission: 'suppliers:read' },
+      { href: '/dashboard/purchase-orders', label: 'Purchase orders', icon: ClipboardList, permission: 'purchase_orders:read' },
+      { href: '/dashboard/stocktakes', label: 'Stocktakes', icon: ClipboardCheck, permission: 'stocktakes:read' },
+      { href: '/dashboard/replenishment', label: 'Replenishment', icon: PackagePlus },
       { href: '/dashboard/users', label: 'People', icon: Users, permission: 'users:read' },
     ],
   },
@@ -60,7 +74,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'INSIGHTS & CONTROL',
     items: [
       { href: '/dashboard/reports', label: 'Reports', icon: Activity },
+      { href: '/dashboard/analytics', label: 'Analytics', icon: LineChart, permission: 'reports:read' },
       { href: '/dashboard/activity', label: 'Activity', icon: ScrollText, permission: 'audit:read' },
+      { href: '/dashboard/integrations', label: 'Integrations', icon: Plug, permission: 'integrations:read' },
       { href: '/dashboard/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -72,9 +88,17 @@ const titleMap: Record<string, string> = {
   '/dashboard/products': 'Products',
   '/dashboard/transfers': 'Transfers',
   '/dashboard/locations': 'Locations',
+  '/dashboard/suppliers': 'Suppliers',
+  '/dashboard/purchase-orders': 'Purchase orders',
+  '/dashboard/stocktakes': 'Stocktakes',
+  '/dashboard/replenishment': 'Replenishment',
   '/dashboard/users': 'People',
   '/dashboard/reports': 'Reports',
+  '/dashboard/analytics': 'Analytics',
   '/dashboard/activity': 'Activity',
+  '/dashboard/integrations': 'Integrations',
+  '/dashboard/notifications': 'Notifications',
+  '/dashboard/search': 'Search',
   '/dashboard/settings': 'Settings',
 }
 
@@ -85,46 +109,19 @@ function getPageTitle(pathname: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Notifications (driven by the real audit feed)                       */
+/* Notifications (the real per-user notification center)                */
 /* ------------------------------------------------------------------ */
 
-type AuditRow = {
+type NotificationRow = {
   _id: string
-  action: string
-  resourceType?: string
-  metadata?: Record<string, unknown>
+  event: string
+  title: string
+  body?: string | null
+  link?: string | null
+  readAt?: string | null
   createdAt: string
-  user?: { name?: string; email?: string } | null
+  actorUser?: { name?: string } | null
 }
-
-const ACTION_LABELS: Record<string, string> = {
-  USER_LOGIN: 'Signed in',
-  USER_LOGOUT: 'Signed out',
-  USER_REGISTER: 'New member registered',
-  ORG_CREATE: 'Workspace created',
-  ORG_UPDATE: 'Workspace settings updated',
-  LOCATION_CREATE: 'Location added',
-  LOCATION_UPDATE: 'Location updated',
-  LOCATION_DEACTIVATE: 'Location deactivated',
-  PRODUCT_CREATE: 'Product created',
-  PRODUCT_UPDATE: 'Product updated',
-  PRODUCT_DEACTIVATE: 'Product deactivated',
-  INVENTORY_ADJUST: 'Stock adjusted',
-  TRANSFER_CREATE: 'Transfer draft created',
-  TRANSFER_SUBMIT: 'Transfer submitted for approval',
-  TRANSFER_APPROVE: 'Transfer approved',
-  TRANSFER_REJECT: 'Transfer rejected',
-  TRANSFER_DISPATCH: 'Transfer dispatched',
-  TRANSFER_RECEIVE: 'Transfer received',
-  TRANSFER_CANCEL: 'Transfer cancelled',
-  TRANSFER_COMPLETE: 'Transfer completed',
-  MEMBERSHIP_CREATE: 'Member added',
-  MEMBERSHIP_UPDATE: 'Member updated',
-  MEMBERSHIP_REMOVE: 'Member removed',
-  SETTINGS_UPDATE: 'Settings updated',
-}
-
-const SEEN_KEY = 'ricoz:activity-seen'
 
 function timeAgo(date: string | Date): string {
   const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
@@ -155,10 +152,22 @@ const STATIC_ENTRIES: PEntry[] = [
   { id: 'settings', label: 'Settings', sub: 'Workspace preferences', icon: Settings, href: '/dashboard/settings', keys: 'theme security notifications' },
   { id: 'people', label: 'People', sub: 'Members & roles', icon: Users, href: '/dashboard/users', permission: 'users:read', keys: 'team members roles invite' },
   { id: 'activity', label: 'Activity', sub: 'Audit log of every action', icon: ScrollText, href: '/dashboard/activity', permission: 'audit:read', keys: 'audit history events log' },
+  { id: 'search', label: 'Search everything', sub: 'Full workspace search', icon: Search, href: '/dashboard/search', keys: 'find lookup global query' },
+  { id: 'suppliers', label: 'Suppliers', sub: 'Vendors & lead times', icon: Handshake, href: '/dashboard/suppliers', permission: 'suppliers:read', keys: 'vendor supplier lead time' },
+  { id: 'purchase-orders', label: 'Purchase orders', sub: 'Buying & receiving', icon: ClipboardList, href: '/dashboard/purchase-orders', permission: 'purchase_orders:read', keys: 'po receiving order buy' },
+  { id: 'stocktakes', label: 'Stocktakes', sub: 'Cycle counts', icon: ClipboardCheck, href: '/dashboard/stocktakes', permission: 'stocktakes:read', keys: 'count audit sheet' },
+  { id: 'replenishment', label: 'Replenishment', sub: 'Restock suggestions', icon: PackagePlus, href: '/dashboard/replenishment', keys: 'reorder restock low stock' },
+  { id: 'analytics', label: 'Analytics', sub: 'Throughput & cycle time', icon: LineChart, href: '/dashboard/analytics', permission: 'reports:read', keys: 'metrics charts throughput' },
+  { id: 'integrations', label: 'Integrations', sub: 'API keys & webhooks', icon: Plug, href: '/dashboard/integrations', permission: 'integrations:read', keys: 'api webhook tokens' },
+  { id: 'scan', label: 'Scan barcode', sub: 'Look up a product by code', icon: QrCode, href: '/dashboard/scan', keys: 'barcode scanner camera lookup' },
+  { id: 'labels', label: 'Print labels', sub: 'Barcode & QR labels', icon: Tags, href: '/dashboard/labels', permission: 'products:read', keys: 'print label sticker' },
+  { id: 'import', label: 'Import CSV', sub: 'Bulk import products & locations', icon: FileUp, href: '/dashboard/products/import', permission: 'products:create', keys: 'csv upload bulk data' },
   { id: 'new-transfer', label: 'New transfer', sub: 'Move stock between locations', icon: Truck, href: '/dashboard/transfers/new', permission: 'transfers:create', keys: 'create ship send move' },
   { id: 'new-product', label: 'New product', sub: 'Add to your catalog', icon: Plus, href: '/dashboard/products/new', permission: 'products:create', keys: 'create add item' },
   { id: 'adjust-stock', label: 'Adjust stock', sub: 'Record an inventory correction', icon: Package, href: '/dashboard/inventory/adjust', permission: 'inventory:adjust', keys: 'count correction write off' },
   { id: 'invite', label: 'Invite teammate', sub: 'Share your registration link', icon: Users, href: '/dashboard/users', permission: 'users:create', keys: 'add member email person' },
+  { id: 'new-po', label: 'New purchase order', sub: 'Order stock from a supplier', icon: ClipboardList, href: '/dashboard/purchase-orders/new', permission: 'purchase_orders:create', keys: 'create buy po order' },
+  { id: 'new-stocktake', label: 'New count sheet', sub: 'Start a cycle count', icon: ClipboardCheck, href: '/dashboard/stocktakes/new', permission: 'stocktakes:create', keys: 'create count sheet' },
 ]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -182,7 +191,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Notifications
   const [notifOpen, setNotifOpen] = React.useState(false)
-  const [notifItems, setNotifItems] = React.useState<AuditRow[]>([])
+  const [notifItems, setNotifItems] = React.useState<NotificationRow[]>([])
   const [notifLoading, setNotifLoading] = React.useState(false)
   const [notifError, setNotifError] = React.useState('')
   const [unread, setUnread] = React.useState(0)
@@ -190,7 +199,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const user = session?.user as any
   const role: UserRole | undefined = user?.role
   const can = (p: Permission) => (role ? hasPermission(role, p) : false)
-  const canAudit = can('audit:read')
 
   const name: string = user?.name || 'Team member'
   const initials = name
@@ -232,7 +240,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // The ShortcutProvider dispatches this when "/" is pressed.
+    const onPaletteEvent = () => {
+      setPaletteQuery('')
+      setActiveIdx(0)
+      setPaletteOpen(true)
+      setHelpOpen(false)
+    }
+    window.addEventListener('ricoz:open-palette', onPaletteEvent)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('ricoz:open-palette', onPaletteEvent)
+    }
   }, [])
 
   // Close overlays whenever the route changes.
@@ -248,40 +267,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   /* ---------------- notifications ---------------- */
 
-  const loadNotifications = React.useCallback(async (markSeen: boolean) => {
+  const loadNotifications = React.useCallback(async (markRead: boolean) => {
     setNotifLoading(true)
     setNotifError('')
-    const res = await apiFetch<AuditRow[]>('/api/audit?limit=8')
+    const res = await apiFetch<NotificationRow[]>('/api/notifications?limit=8')
     setNotifLoading(false)
     if (!res.success) {
       setNotifError(res.error || 'Could not load notifications')
       return
     }
-    const rows = res.data ?? []
-    setNotifItems(rows)
-    if (markSeen) {
+    setNotifItems(res.data ?? [])
+    if (markRead) {
+      // Opening the bell marks everything read (server-side, per user).
+      await apiFetch('/api/notifications', { method: 'PATCH', body: { read: true, all: true } })
       setUnread(0)
-      const latest = rows.length ? new Date(rows[0].createdAt).getTime() : Date.now()
-      try {
-        localStorage.setItem(SEEN_KEY, String(Math.max(latest, Date.now())))
-      } catch {
-        /* storage unavailable — badge simply stays until next visit */
-      }
     } else {
-      try {
-        const seen = Number(localStorage.getItem(SEEN_KEY) || 0)
-        setUnread(rows.filter((r) => new Date(r.createdAt).getTime() > seen).length)
-      } catch {
-        setUnread(0)
-      }
+      setUnread(typeof res.unreadCount === 'number' ? res.unreadCount : 0)
     }
   }, [])
 
-  // Seed the unread badge once the session (and thus the role) is known.
+  // Seed the unread badge once the session is known.
   React.useEffect(() => {
-    if (!canAudit) return
+    if (!session?.user) return
     loadNotifications(false)
-  }, [canAudit, loadNotifications])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, loadNotifications])
 
   const toggleNotifications = () => {
     const next = !notifOpen
@@ -362,6 +372,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       (!query || `${entry.label} ${entry.sub ?? ''} ${entry.keys ?? ''}`.toLowerCase().includes(query))
   )
   const sections: { title: string; items: PResult[] }[] = []
+  if (query) {
+    sections.push({
+      title: 'SEARCH ALL',
+      items: [
+        {
+          id: 'search-all',
+          label: `Search all for “${paletteQuery.trim()}”`,
+          sub: 'Products, locations, transfers & people',
+          icon: Search,
+          href: `/dashboard/search?q=${encodeURIComponent(paletteQuery.trim())}`,
+        },
+      ],
+    })
+  }
   if (visibleStatic.length) {
     sections.push({ title: query ? 'PAGES & ACTIONS' : 'JUMP TO', items: visibleStatic })
   }
@@ -568,7 +592,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <CircleHelp size={18} />
             </button>
-            {canAudit && (
               <div style={{ position: 'relative' }}>
                 <button
                   className="icon-button notification-button"
@@ -607,7 +630,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       >
                         <b style={{ fontSize: 12 }}>Notifications</b>
                         <Link
-                          href="/dashboard/activity"
+                          href="/dashboard/notifications"
                           onClick={() => setNotifOpen(false)}
                           style={{ fontSize: 10, fontWeight: 700, color: '#7c63e3' }}
                         >
@@ -617,7 +640,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <div style={{ maxHeight: 330, overflowY: 'auto' }}>
                         {notifLoading ? (
                           <div style={{ padding: '18px 14px', fontSize: 10.5, color: 'var(--muted)' }}>
-                            Loading recent activity…
+                            Loading notifications…
                           </div>
                         ) : notifError ? (
                           <div style={{ padding: '16px 14px', display: 'grid', gap: 9 }}>
@@ -641,7 +664,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               key={n._id}
                               onClick={() => {
                                 setNotifOpen(false)
-                                router.push('/dashboard/activity')
+                                apiFetch('/api/notifications', {
+                                  method: 'PATCH',
+                                  body: { read: true, ids: [n._id] },
+                                }).catch(() => {})
+                                router.push(n.link || '/dashboard/notifications')
                               }}
                               style={{
                                 display: 'flex',
@@ -652,6 +679,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 alignItems: 'flex-start',
                                 borderBottom: '1px solid var(--line)',
                                 background: 'transparent',
+                                opacity: n.readAt ? 0.62 : 1,
                               }}
                             >
                               <span style={{ flex: 1, minWidth: 0 }}>
@@ -663,11 +691,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                     fontWeight: 700,
                                   }}
                                 >
-                                  {ACTION_LABELS[n.action] || n.action}
+                                  {n.title}
                                 </b>
                                 <small style={{ fontSize: 9.5, opacity: 0.65 }}>
-                                  {n.user?.name || 'Someone'} · {timeAgo(n.createdAt)}
+                                  {n.actorUser?.name || 'System'} · {timeAgo(n.createdAt)}
                                 </small>
+                                {n.body && (
+                                  <small style={{ fontSize: 9.5, opacity: 0.6, display: 'block', marginTop: 2 }}>
+                                    {n.body}
+                                  </small>
+                                )}
                               </span>
                             </button>
                           ))
@@ -687,7 +720,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </>
                 )}
               </div>
-            )}
             <span className="topbar-divider" />
             <div className="topbar-user-wrap" style={{ position: 'relative' }}>
               <button className="topbar-user" onClick={() => setUserMenu((v) => !v)}>
@@ -772,6 +804,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Close navigation"
         />
       )}
+
+      {/* Global keyboard shortcuts (g-chords, / to search, ? for help) */}
+      <ShortcutProvider />
 
       {/* ---------------- Command palette ---------------- */}
       {paletteOpen && (
@@ -975,7 +1010,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 11 }}>
                   {[
                     { label: 'Reports', href: '/dashboard/reports', show: true },
-                    { label: 'Activity log', href: '/dashboard/activity', show: canAudit },
+                    { label: 'Activity log', href: '/dashboard/activity', show: can('audit:read') },
                     { label: 'People & roles', href: '/dashboard/users', show: can('users:read') },
                     { label: 'Public site', href: '/', show: true },
                   ]

@@ -8,6 +8,7 @@ import { auth } from '@/lib/auth/auth'
 import { inventoryAdjustmentSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { dispatchWebhook } from '@/lib/webhooks'
 import { Types } from 'mongoose'
 
 export async function POST(request: NextRequest) {
@@ -149,6 +150,18 @@ export async function POST(request: NextRequest) {
         resourceType: 'Inventory',
         resourceId: inventory._id,
         metadata: { productId, locationId, adjustmentQuantity, reason },
+      })
+
+      await dispatchWebhook({
+        organization: session.user.organizationId,
+        event: 'inventory.adjusted',
+        payload: {
+          productId,
+          locationId,
+          adjustmentQuantity,
+          reason,
+          availableAfter: inventory.availableQuantity,
+        },
       })
 
       return NextResponse.json({

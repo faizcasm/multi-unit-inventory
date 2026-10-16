@@ -7,6 +7,7 @@ import { StockTransfer } from '@/models/StockTransfer'
 import { InventoryMovement } from '@/models/InventoryMovement'
 import { auth } from '@/lib/auth/auth'
 import { hasPermission } from '@/lib/permissions'
+import { computeVelocity, computeCoverageDays, suggestedOrderQty, classifyStock, MovementLike } from '@/lib/planning'
 import { Types } from 'mongoose'
 
 export async function GET(request: NextRequest) {
@@ -313,6 +314,161 @@ export async function GET(request: NextRequest) {
           { $sort: { createdAt: -1 } },
         ])
         filename = 'movement-history-report'
+        break
+      }
+
+      case 'valuation': {
+        // Per product × location inventory valuation. unitCost comes from the
+        // product record (0 when the product has no cost set).
+        const pipeline: any[] = [
+          { $match: { organization: orgId } },
+          {
+            $lookup: {
+              from: 'products',
+              localField: 'product',
+              foreignField: '_id',
+              as: 'productInfo',
+            },
+          },
+          { $unwind: '$productInfo' },
+          { $match: { 'productInfo.isActive': true } },
+          {
+            $lookup: {
+              from: 'locations',
+              localField: 'location',
+              foreignField: '_id',
+              as: 'locationInfo',
+            },
+          },
+          { $unwind: '$locationInfo' },
+        ]
+
+        if (locationId) {
+          pipeline.push({ $match: { location: new Types.ObjectId(locationId) } })
+        }
+        if (category) {
+          pipeline.push({ $match: { 'productInfo.category': category } })
+        }
+
+        const onHandExpr = {
+          $add: ['$availableQuantity', '$reservedQuantity', '$inTransitQuantity', '$damagedQuantity'],
+        }
+        const unitCostExpr = { $ifNull: ['$productInfo.unitCost', 0] }
+
+        pipeline.push({
+          $project: {
+            sku: '$productInfo.sku',
+            name: '$productInfo.name',
+            category: '$productInfo.category',
+            unitOfMeasure: '$productInfo.unitOfMeasure',
+            location: '$locationInfo.name',
+            available: '$availableQuantity',
+            reserved: '$reservedQuantity',
+            damaged: '$damagedQuantity',
+            inTransit: '$inTransitQuantity',
+            onHand: onHandExpr,
+            unitCost: unitCostExpr,
+            totalValue: { $multiply: [onHandExpr, unitCostExpr] },
+          },
+        })
+        pipeline.push({ $sort: { name: 1, location: 1 } })
+
+        data = await Inventory.aggregate(pipeline)
+        filename = 'valuation-report'
+        break
+      }
+
+      case 'forecast': {
+        // Demand forecast per active product. All math (velocity sign rules,
+        // coverage, suggested qty, classification) comes from src/lib/planning.ts.
+        // locationId is intentionally ignored — the forecast works on the
+        // org-wide product catalog; `category` still narrows the row set.
+        const now = Date.now()
+        const cutoff90 = new Date(now - 90 * 24 * 60 * 60 * 1000)
+        const cutoff30 = now - 30 * 24 * 60 * 60 * 1000
+
+        const productFilter: any = { organization: orgId, isActive: true }
+        if (category) productFilter.category = category
+
+        // Lean results are weakly typed via the `mongoose.models.X ||` model
+        // fallback — narrow them to the fields this case consumes.
+        interface LeanProduct {
+          _id: Types.ObjectId
+          name: string
+          sku: string
+          unitOfMeasure: string
+          category?: string
+          reorderThreshold: number
+          reorderQuantity: number
+        }
+        interface LeanMovement extends MovementLike {
+          product: Types.ObjectId
+        }
+
+        const [rawProducts, availableByProduct, rawMovements] = await Promise.all([
+          Product.find(productFilter).lean(),
+          Inventory.aggregate([
+            { $match: { organization: orgId } },
+            { $group: { _id: '$product', available: { $sum: '$availableQuantity' } } },
+          ]),
+          // 90 days of movements covers velocity90d AND the previous 30-day
+          // window (days 30–60 back) needed for trendPct.
+          InventoryMovement.find(
+            { organization: orgId, createdAt: { $gte: cutoff90 }, movementType: { $in: ['DISPATCH', 'RETURN'] } },
+            'product movementType quantity createdAt'
+          ).lean(),
+        ])
+        const products = rawProducts as unknown as LeanProduct[]
+        const movements = rawMovements as unknown as LeanMovement[]
+
+        const availableMap = new Map<string, number>()
+        for (const row of availableByProduct) availableMap.set(String(row._id), row.available || 0)
+
+        const movementsByProduct = new Map<string, MovementLike[]>()
+        for (const m of movements) {
+          const key = String(m.product)
+          const list = movementsByProduct.get(key)
+          if (list) list.push(m)
+          else movementsByProduct.set(key, [m])
+        }
+
+        data = products.map((product) => {
+          const pid = String(product._id)
+          const available = availableMap.get(pid) ?? 0
+          const productMovements = movementsByProduct.get(pid) ?? []
+
+          const velocity7d = computeVelocity(productMovements, 7, now)
+          const velocity30d = computeVelocity(productMovements, 30, now)
+          const velocity90d = computeVelocity(productMovements, 90, now)
+          // Previous 30-day window: the same helper with the window shifted
+          // back 30 days (its `now` upper bound excludes the current window).
+          const velocityPrev30d = computeVelocity(productMovements, 30, cutoff30)
+
+          // Trend of the current 30d window vs. the previous one; null when
+          // there is no previous demand to compare against.
+          const trendPct =
+            velocityPrev30d > 0 ? Math.round(((velocity30d - velocityPrev30d) / velocityPrev30d) * 100 * 10) / 10 : null
+
+          const coverage = computeCoverageDays(available, velocity30d)
+          const classified = classifyStock(available, product.reorderThreshold || 0, coverage)
+
+          return {
+            sku: product.sku,
+            name: product.name,
+            category: product.category || '',
+            unitOfMeasure: product.unitOfMeasure,
+            available,
+            velocity7d,
+            velocity30d,
+            velocity90d,
+            trendPct,
+            projected30d: Math.ceil(velocity30d * 30),
+            coverageDays: coverage,
+            suggestedQty: suggestedOrderQty(product, available, velocity30d),
+            status: classified,
+          }
+        })
+        filename = 'forecast-report'
         break
       }
 

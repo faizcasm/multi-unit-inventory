@@ -34,6 +34,22 @@ export type Permission =
   | 'audit:read'
   | 'settings:read'
   | 'settings:update'
+  | 'suppliers:read'
+  | 'suppliers:create'
+  | 'suppliers:update'
+  | 'suppliers:deactivate'
+  | 'purchase_orders:read'
+  | 'purchase_orders:create'
+  | 'purchase_orders:update'
+  | 'purchase_orders:receive'
+  | 'purchase_orders:cancel'
+  | 'stocktakes:read'
+  | 'stocktakes:create'
+  | 'stocktakes:update'
+  | 'stocktakes:count'
+  | 'stocktakes:post'
+  | 'integrations:read'
+  | 'integrations:manage'
 
 export const rolePermissions: Record<UserRole, Permission[]> = {
   admin: [
@@ -67,6 +83,22 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     'audit:read',
     'settings:read',
     'settings:update',
+    'suppliers:read',
+    'suppliers:create',
+    'suppliers:update',
+    'suppliers:deactivate',
+    'purchase_orders:read',
+    'purchase_orders:create',
+    'purchase_orders:update',
+    'purchase_orders:receive',
+    'purchase_orders:cancel',
+    'stocktakes:read',
+    'stocktakes:create',
+    'stocktakes:update',
+    'stocktakes:count',
+    'stocktakes:post',
+    'integrations:read',
+    'integrations:manage',
   ],
   inventory_manager: [
     'organization:read',
@@ -90,6 +122,20 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     'reports:export',
     'audit:read',
     'settings:read',
+    'suppliers:read',
+    'suppliers:create',
+    'suppliers:update',
+    'suppliers:deactivate',
+    'purchase_orders:read',
+    'purchase_orders:create',
+    'purchase_orders:update',
+    'purchase_orders:receive',
+    'purchase_orders:cancel',
+    'stocktakes:read',
+    'stocktakes:create',
+    'stocktakes:update',
+    'stocktakes:count',
+    'stocktakes:post',
   ],
   approver: [
     'organization:read',
@@ -103,6 +149,10 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     'reports:read',
     'audit:read',
     'settings:read',
+    'suppliers:read',
+    'purchase_orders:read',
+    'stocktakes:read',
+    'stocktakes:count',
   ],
   warehouse_staff: [
     'organization:read',
@@ -114,6 +164,10 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     'transfers:receive',
     'reports:read',
     'settings:read',
+    'purchase_orders:read',
+    'purchase_orders:receive',
+    'stocktakes:read',
+    'stocktakes:count',
   ],
 }
 

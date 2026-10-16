@@ -6,9 +6,11 @@ import { Location } from '@/models/Location'
 import { InventoryMovement } from '@/models/InventoryMovement'
 import { StockTransfer } from '@/models/StockTransfer'
 import { auth } from '@/lib/auth/auth'
-import { productSchema } from '@/lib/validation/schemas'
+import { productUpdateSchema } from '@/lib/validation/catalog'
+import { Supplier } from '@/models/Supplier'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
+import { dispatchWebhook } from '@/lib/webhooks'
 import { Types } from 'mongoose'
 
 export async function GET(
@@ -32,7 +34,9 @@ export async function GET(
 
     await connectDB()
 
-    const product = await Product.findOne({ _id: id, organization: session.user.organizationId }).lean() as any
+    const product = await Product.findOne({ _id: id, organization: session.user.organizationId })
+      .populate('supplier', 'name leadTimeDays isActive')
+      .lean() as any
     if (!product) {
       return NextResponse.json({ success: false, error: 'Product not found' }, { status: 404 })
     }
@@ -111,13 +115,29 @@ export async function PATCH(
     await connectDB()
 
     const body = await request.json()
-    const parsed = productSchema.partial().safeParse(body)
+    const parsed = productUpdateSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors },
         { status: 400 }
       )
+    }
+
+    // Validate the optional supplier reference (must exist in this org).
+    // `null` unlinks the supplier; `undefined` leaves it untouched.
+    if (parsed.data.supplier === '') parsed.data.supplier = null
+    if (parsed.data.supplier) {
+      if (!Types.ObjectId.isValid(parsed.data.supplier)) {
+        return NextResponse.json({ success: false, error: 'Invalid supplier' }, { status: 400 })
+      }
+      const supplierExists = await Supplier.exists({
+        _id: parsed.data.supplier,
+        organization: session.user.organizationId,
+      })
+      if (!supplierExists) {
+        return NextResponse.json({ success: false, error: 'Invalid supplier' }, { status: 400 })
+      }
     }
 
     // Check for duplicate SKU if SKU is being changed
@@ -151,6 +171,17 @@ export async function PATCH(
       resourceType: 'Product',
       resourceId: product._id,
       metadata: { updatedFields: Object.keys(parsed.data) },
+    })
+
+    await dispatchWebhook({
+      organization: session.user.organizationId,
+      event: 'product.updated',
+      payload: {
+        productId: String(product._id),
+        name: product.name,
+        sku: product.sku,
+        updatedFields: Object.keys(parsed.data),
+      },
     })
 
     return NextResponse.json({ success: true, data: product })
@@ -233,6 +264,18 @@ export async function DELETE(
       resourceType: 'Product',
       resourceId: product._id,
       metadata: { name: product.name, sku: product.sku },
+    })
+
+    await dispatchWebhook({
+      organization: session.user.organizationId,
+      event: 'product.updated',
+      payload: {
+        productId: String(product._id),
+        name: product.name,
+        sku: product.sku,
+        isActive: false,
+        deactivated: true,
+      },
     })
 
     return NextResponse.json({ success: true, data: product })

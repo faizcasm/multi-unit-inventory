@@ -1,0 +1,51 @@
+{
+  "name": "Ricoz Inventory",
+  "short_name": "Ricoz",
+  "description": "Multi-unit inventory operations — stock, transfers, and audits in one place.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8f7fb",
+  "theme_color": "#f8f7fb",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Overview of stock, transfers, and alerts",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Scan barcode",
+      "short_name": "Scan",
+      "description": "Scan a barcode to look up a product",
+      "url": "/dashboard/scan",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "New transfer",
+      "short_name": "Transfer",
+      "description": "Start a new stock transfer",
+      "url": "/dashboard/transfers/new",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ]
+}

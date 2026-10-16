@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { connectDB } from '@/lib/db/mongodb'
 import { User } from '@/models/User'
 import { sendEmail, renderPasswordResetEmail, isSmtpConfigured } from '@/lib/email'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 
 function appUrl(): string {
   return process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -12,6 +13,23 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null)
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
+
+    // Throttle BEFORE processing: 5/hour per ip+email, 20/hour per ip.
+    const ip = clientIp(request)
+    const byEmail = rateLimit(`fp:${ip}:${email}`, { limit: 5, windowMs: 60 * 60 * 1000 })
+    const byIp = rateLimit(`fp-ip:${ip}`, { limit: 20, windowMs: 60 * 60 * 1000 })
+    if (!byEmail.ok || !byIp.ok) {
+      const retryAfterSec = Math.max(
+        byEmail.ok ? 0 : byEmail.retryAfterSec,
+        byIp.ok ? 0 : byIp.retryAfterSec
+      )
+      const seconds = Math.max(1, Math.ceil(retryAfterSec))
+      const minutes = Math.max(1, Math.ceil(seconds / 60))
+      return NextResponse.json(
+        { success: false, error: `Too many attempts. Try again in ${minutes} minute(s).` },
+        { status: 429, headers: { 'Retry-After': String(seconds) } }
+      )
+    }
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ success: false, error: 'A valid email address is required' }, { status: 400 })

@@ -5,6 +5,9 @@ import { Location } from '@/models/Location'
 import { Inventory } from '@/models/Inventory'
 import { StockTransfer } from '@/models/StockTransfer'
 import { InventoryMovement } from '@/models/InventoryMovement'
+import { User } from '@/models/User'
+import { Membership } from '@/models/Membership'
+import { Organization } from '@/models/Organization'
 import { auth } from '@/lib/auth/auth'
 import { hasPermission } from '@/lib/permissions'
 import { Types } from 'mongoose'
@@ -44,6 +47,16 @@ export async function GET(request: NextRequest) {
       inventoryByLocationData,
       lowStockProductsData,
       movementActivityData,
+      // User preferences (widget layout + onboarding dismissal) for this user
+      userPreferencesDoc,
+      // Onboarding checklist inputs (org-scoped)
+      emptyWorkspaceCheck,
+      onboardingLocation,
+      onboardingProduct,
+      onboardingStock,
+      onboardingTransfer,
+      membershipCount,
+      organizationDoc,
     ] = await Promise.all([
       // Active products count
       Product.countDocuments({ organization: orgId, isActive: true }),
@@ -192,6 +205,20 @@ export async function GET(request: NextRequest) {
         },
         { $sort: { '_id.date': 1 } },
       ]),
+
+      // Current user's preferences (widget personalization + onboarding)
+      User.findById(session.user.id).select('preferences').lean(),
+
+      // Empty workspace? (no product at all yet → offer demo data seeder)
+      Product.exists({ organization: orgId }),
+
+      // Onboarding checklist steps
+      Location.exists({ organization: orgId, isActive: true }),
+      Product.exists({ organization: orgId, isActive: true }),
+      Inventory.exists({ organization: orgId, availableQuantity: { $gt: 0 } }),
+      StockTransfer.exists({ organization: orgId }),
+      Membership.countDocuments({ organization: orgId }),
+      Organization.findById(orgId).select('invites').lean(),
     ])
 
     const stats = inventoryStats[0] || { totalAvailable: 0, totalReserved: 0, totalInTransit: 0, totalDamaged: 0 }
@@ -240,8 +267,34 @@ export async function GET(request: NextRequest) {
       .map(([date, value]) => ({ date, ...value }))
       .sort((a, b) => a.date.localeCompare(b.date))
 
+    const preferencesDoc = (userPreferencesDoc as any)?.preferences || {}
+    const preferences = {
+      widgets: Array.isArray(preferencesDoc.widgets) ? preferencesDoc.widgets : undefined,
+      onboardingDismissed: preferencesDoc.onboardingDismissed === true,
+      dashboardLayout: preferencesDoc.dashboardLayout || 'comfortable',
+    }
+
+    // Invite check: >1 membership (a teammate was invited/joined) or a pending invite entry.
+    const hasInvite = (organizationDoc as any)?.invites?.length > 0
+    const onboardingSteps = [
+      { key: 'add_location', label: 'Add a location', done: !!onboardingLocation, href: '/dashboard/locations', cta: 'Add location' },
+      { key: 'add_product', label: 'Add a product', done: !!onboardingProduct, href: '/dashboard/products/new', cta: 'Add product' },
+      { key: 'stock_on_hand', label: 'Stock on hand', done: !!onboardingStock, href: '/dashboard/inventory/adjust', cta: 'Adjust stock' },
+      { key: 'first_transfer', label: 'First transfer', done: !!onboardingTransfer, href: '/dashboard/transfers/new', cta: 'Create transfer' },
+      { key: 'invite_teammate', label: 'Invite a teammate', done: membershipCount > 1 || hasInvite, href: '/dashboard/users', cta: 'Invite teammate' },
+    ]
+
+    const onboarding = {
+      dismissed: preferences.onboardingDismissed,
+      complete: onboardingSteps.every((s) => s.done),
+      steps: onboardingSteps,
+    }
+
     return NextResponse.json({
       success: true,
+      // Exposed at the response root (and mirrored inside `data`) so clients can
+      // read `preferences` without digging into the payload.
+      preferences,
       data: {
         stats: {
           activeProducts,
@@ -263,6 +316,9 @@ export async function GET(request: NextRequest) {
           lowStockProducts: lowStockProductsData,
           movementActivity,
         },
+        preferences,
+        onboarding,
+        emptyWorkspace: !emptyWorkspaceCheck,
       },
     })
   } catch (error) {

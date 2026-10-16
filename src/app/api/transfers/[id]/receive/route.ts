@@ -8,6 +8,7 @@ import { receiveTransferSchema } from '@/lib/validation/schemas'
 import { hasPermission, canUserPerformAction, canTransitionTransfer } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
 import { sendTransferNotification } from '@/lib/transfer-emails'
+import { fireTransferHooks } from '@/lib/transfer-hooks'
 import { Types } from 'mongoose'
 
 export async function POST(
@@ -315,6 +316,13 @@ export async function POST(
       })
 
       await sendTransferNotification(transfer._id, 'RECEIVED', session.user.id)
+
+      await fireTransferHooks({
+        organization: session.user.organizationId,
+        event: 'transfer.received',
+        transfer,
+        actorUserId: session.user.id,
+      })
 
       return NextResponse.json({ success: true, data: transfer })
     } catch (error) {
