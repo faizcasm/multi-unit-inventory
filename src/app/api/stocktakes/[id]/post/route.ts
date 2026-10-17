@@ -147,7 +147,7 @@ export async function POST(
               location: stocktake.location,
               movementType: 'ADJUSTMENT',
               quantity: adjustment,
-              referenceType: 'ADJUSTMENT',
+              referenceType: 'STOCKTAKE',
               referenceId: stocktake._id,
               responsibleUser: session.user.id,
               reason: `Cycle count ${stocktake.reference}`,

@@ -86,17 +86,22 @@ export function resetRateLimit(key: string): void {
   buckets.delete(key)
 }
 
-/** Client IP: first `x-forwarded-for` hop, else `x-real-ip`, else `'local'`. */
+/**
+ * Client IP: `x-real-ip` first (set by Vercel and authoritative — a client
+ * cannot influence it), else the FIRST `x-forwarded-for` hop (appended by the
+ * trusted proxy; note a hostile client can prepend fake entries to the left of
+ * x-forwarded-for, so that header is only a fallback), else `'local'`.
+ */
 export function clientIp(req: Request): string {
+  const realIp = req.headers.get('x-real-ip')
+  if (realIp) {
+    const trimmed = realIp.trim()
+    if (trimmed) return trimmed
+  }
   const forwarded = req.headers.get('x-forwarded-for')
   if (forwarded) {
     const first = forwarded.split(',')[0]
     const trimmed = first ? first.trim() : ''
-    if (trimmed) return trimmed
-  }
-  const realIp = req.headers.get('x-real-ip')
-  if (realIp) {
-    const trimmed = realIp.trim()
     if (trimmed) return trimmed
   }
   return 'local'

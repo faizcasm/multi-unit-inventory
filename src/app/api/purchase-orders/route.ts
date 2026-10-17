@@ -205,30 +205,40 @@ export async function POST(request: NextRequest) {
     }
     const productMap = new Map(products.map((p: any) => [p._id.toString(), p]))
 
-    // Reference — same countDocuments pattern the transfers route uses for TXN-.
-    const count = await PurchaseOrder.countDocuments({ organization: session.user.organizationId })
-    const reference = `PO-${String(count + 1).padStart(6, '0')}`
-
-    const purchaseOrder = await PurchaseOrder.create({
-      organization: session.user.organizationId,
-      reference,
-      supplier: supplierId,
-      destinationLocation: destinationLocationId,
-      status: 'DRAFT',
-      lines: lines.map((line) => {
-        const product: any = productMap.get(line.productId)
-        return {
-          product: line.productId,
-          productName: product.name,
-          sku: product.sku,
-          requestedQuantity: line.requestedQuantity,
-          receivedQuantity: 0,
-          unitCost: typeof line.unitCost === 'number' ? line.unitCost : product.unitCost || 0,
-        }
-      }),
-      notes,
-      createdBy: session.user.id,
-    })
+    // Reference — same countDocuments pattern the transfers route uses for
+    // TXN-, including the retry-on-concurrent-create duplicate-key race so
+    // two simultaneous creates don't surface a raw E11000 as a 500.
+    let purchaseOrder: any = null
+    let reference = ''
+    for (let attempt = 0; attempt < 3 && !purchaseOrder; attempt++) {
+      const count = await PurchaseOrder.countDocuments({ organization: session.user.organizationId })
+      reference = `PO-${String(count + 1).padStart(6, '0')}`
+      try {
+        purchaseOrder = await PurchaseOrder.create({
+          organization: session.user.organizationId,
+          reference,
+          supplier: supplierId,
+          destinationLocation: destinationLocationId,
+          status: 'DRAFT',
+          lines: lines.map((line) => {
+            const product: any = productMap.get(line.productId)
+            return {
+              product: line.productId,
+              productName: product.name,
+              sku: product.sku,
+              requestedQuantity: line.requestedQuantity,
+              receivedQuantity: 0,
+              unitCost: typeof line.unitCost === 'number' ? line.unitCost : product.unitCost || 0,
+            }
+          }),
+          notes,
+          createdBy: session.user.id,
+        })
+      } catch (error: any) {
+        if (error?.code === 11000 && attempt < 2) continue // reference collision — recount and retry
+        throw error
+      }
+    }
 
     await AuditEvent.create({
       organization: session.user.organizationId,

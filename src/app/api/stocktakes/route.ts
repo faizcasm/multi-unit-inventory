@@ -158,19 +158,29 @@ export async function POST(request: NextRequest) {
         systemQuantity: 0,
       }))
 
-    // Generate reference (same pattern as TXN- references on transfers)
-    const count = await Stocktake.countDocuments({ organization: session.user.organizationId })
-    const reference = `STK-${String(count + 1).padStart(6, '0')}`
-
-    const stocktake = await Stocktake.create({
-      organization: session.user.organizationId,
-      reference,
-      location: locationId,
-      status: 'OPEN',
-      lines,
-      createdBy: session.user.id,
-      notes,
-    })
+    // Generate reference (same pattern as TXN- references on transfers) —
+    // retry on concurrent-create duplicate-key races so two simultaneous
+    // creates don't surface a raw E11000 as a 500.
+    let stocktake: any = null
+    let reference = ''
+    for (let attempt = 0; attempt < 3 && !stocktake; attempt++) {
+      const count = await Stocktake.countDocuments({ organization: session.user.organizationId })
+      reference = `STK-${String(count + 1).padStart(6, '0')}`
+      try {
+        stocktake = await Stocktake.create({
+          organization: session.user.organizationId,
+          reference,
+          location: locationId,
+          status: 'OPEN',
+          lines,
+          createdBy: session.user.id,
+          notes,
+        })
+      } catch (error: any) {
+        if (error?.code === 11000 && attempt < 2) continue // reference collision — recount and retry
+        throw error
+      }
+    }
 
     await AuditEvent.create({
       organization: session.user.organizationId,

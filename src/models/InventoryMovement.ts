@@ -8,7 +8,7 @@ export interface IInventoryMovement extends Document {
   location: Types.ObjectId
   movementType: MovementType
   quantity: number
-  referenceType: 'TRANSFER' | 'ADJUSTMENT' | 'PURCHASE_ORDER'
+  referenceType: 'TRANSFER' | 'ADJUSTMENT' | 'PURCHASE_ORDER' | 'STOCKTAKE'
   referenceId: Types.ObjectId
   referenceLineItemId?: Types.ObjectId
   responsibleUser: Types.ObjectId
@@ -40,7 +40,7 @@ const InventoryMovementSchema = new Schema<IInventoryMovement>(
       required: true,
     },
     quantity: { type: Number, required: true },
-    referenceType: { type: String, enum: ['TRANSFER', 'ADJUSTMENT', 'PURCHASE_ORDER'], required: true },
+    referenceType: { type: String, enum: ['TRANSFER', 'ADJUSTMENT', 'PURCHASE_ORDER', 'STOCKTAKE'], required: true },
     referenceId: { type: Schema.Types.ObjectId, required: true },
     referenceLineItemId: { type: Schema.Types.ObjectId },
     responsibleUser: { type: Schema.Types.ObjectId, ref: 'User', required: true },

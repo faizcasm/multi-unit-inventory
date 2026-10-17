@@ -135,7 +135,23 @@ export async function GET(request: NextRequest) {
       // Exact status match (case-insensitive) — e.g. "in_transit" finds IN_TRANSIT.
       if (TRANSFER_STATUSES.includes(statusRx)) or.push({ status: statusRx })
 
-      const query = { organization: orgId, $or: or }
+      const query: Record<string, unknown> = { organization: orgId, $or: or }
+
+      // Location permission filtering — same $or the transfers list route
+      // uses, ANDed with the match filters so restricted users can't surface
+      // transfers between locations they can't access.
+      if (session.user.locationPermissions.length > 0) {
+        const permitted = session.user.locationPermissions.map((id) => new Types.ObjectId(id))
+        query.$and = [
+          {
+            $or: [
+              { sourceLocation: { $in: permitted } },
+              { destinationLocation: { $in: permitted } },
+            ],
+          },
+        ]
+      }
+
       const total = await StockTransfer.countDocuments(query)
       const rows = (await StockTransfer.find(query)
         .sort({ createdAt: -1 })

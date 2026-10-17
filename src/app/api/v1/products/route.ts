@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/db/mongodb'
 import { hasPermission } from '@/lib/permissions'
 import { authenticateApiKey } from '@/lib/apikey'
 import { Product } from '@/models/Product'
+import { escapeRegex } from '@/lib/escape-regex'
 
 /** Read-only list of products for the organization behind the API key. */
 export async function GET(request: NextRequest) {
@@ -26,10 +27,11 @@ export async function GET(request: NextRequest) {
     const query: any = { organization: identity.organizationId }
 
     if (search) {
+      const safeSearch = escapeRegex(search)
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-        { barcode: { $regex: search, $options: 'i' } },
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { sku: { $regex: safeSearch, $options: 'i' } },
+        { barcode: { $regex: safeSearch, $options: 'i' } },
       ]
     }
 

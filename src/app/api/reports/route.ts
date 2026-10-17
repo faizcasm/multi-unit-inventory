@@ -406,7 +406,10 @@ export async function GET(request: NextRequest) {
         }
 
         const [rawProducts, availableByProduct, rawMovements] = await Promise.all([
-          Product.find(productFilter).lean(),
+          // Safety caps: bound worst-case memory/latency on very large orgs.
+          // Normal catalogs/movement volumes sit far below these, so output
+          // is unchanged for realistic data sizes.
+          Product.find(productFilter).limit(10000).lean(),
           Inventory.aggregate([
             { $match: { organization: orgId } },
             { $group: { _id: '$product', available: { $sum: '$availableQuantity' } } },
@@ -416,7 +419,7 @@ export async function GET(request: NextRequest) {
           InventoryMovement.find(
             { organization: orgId, createdAt: { $gte: cutoff90 }, movementType: { $in: ['DISPATCH', 'RETURN'] } },
             'product movementType quantity createdAt'
-          ).lean(),
+          ).limit(50000).lean(),
         ])
         const products = rawProducts as unknown as LeanProduct[]
         const movements = rawMovements as unknown as LeanMovement[]

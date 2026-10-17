@@ -112,46 +112,57 @@ export async function POST(
         const data = receiveData.get(productId)!
         const inv = sourceInventory.find((i) => i.product.toString() === productId)
 
-        if (inv) {
-          const beforeQuantity = {
-            available: inv.availableQuantity,
-            reserved: inv.reservedQuantity,
-            inTransit: inv.inTransitQuantity,
-            damaged: inv.damagedQuantity,
-          }
-
-          inv.inTransitQuantity -= dispatched
-          inv.lastMovementAt = new Date()
-          await inv.save({ session: mongoSession })
-
-          const afterQuantity = {
-            available: inv.availableQuantity,
-            reserved: inv.reservedQuantity,
-            inTransit: inv.inTransitQuantity,
-            damaged: inv.damagedQuantity,
-          }
-
-          // Movement for source: reduce in-transit
-          await InventoryMovement.create(
-            [
-              {
-                organization: session.user.organizationId,
-                product: productId,
-                location: transfer.sourceLocation,
-                movementType: 'DISCREPANCY',
-                quantity: -dispatched,
-                referenceType: 'TRANSFER',
-                referenceId: transfer._id,
-                referenceLineItemId: item._id,
-                responsibleUser: session.user.id,
-                reason: `Transfer receipt: ${data.missing} missing, ${data.damaged} damaged`,
-                beforeQuantity,
-                afterQuantity,
-              },
-            ],
-            { session: mongoSession }
+        // Guard: every dispatched line needs a source inventory record with
+        // enough in-transit stock. A missing/short record means in-transit
+        // state is inconsistent — abort rather than silently skip the
+        // decrement (leaking in-transit forever) or write a negative
+        // quantity (schema min: 0 → 500). Mirrors the dispatch guard.
+        if (!inv || inv.inTransitQuantity < dispatched) {
+          await mongoSession.abortTransaction()
+          return NextResponse.json(
+            { success: false, error: 'In-transit stock record is inconsistent — cannot receive' },
+            { status: 409 }
           )
         }
+
+        const beforeQuantity = {
+          available: inv.availableQuantity,
+          reserved: inv.reservedQuantity,
+          inTransit: inv.inTransitQuantity,
+          damaged: inv.damagedQuantity,
+        }
+
+        inv.inTransitQuantity -= dispatched
+        inv.lastMovementAt = new Date()
+        await inv.save({ session: mongoSession })
+
+        const afterQuantity = {
+          available: inv.availableQuantity,
+          reserved: inv.reservedQuantity,
+          inTransit: inv.inTransitQuantity,
+          damaged: inv.damagedQuantity,
+        }
+
+        // Movement for source: reduce in-transit
+        await InventoryMovement.create(
+          [
+            {
+              organization: session.user.organizationId,
+              product: productId,
+              location: transfer.sourceLocation,
+              movementType: 'DISCREPANCY',
+              quantity: -dispatched,
+              referenceType: 'TRANSFER',
+              referenceId: transfer._id,
+              referenceLineItemId: item._id,
+              responsibleUser: session.user.id,
+              reason: `Transfer receipt: ${data.missing} missing, ${data.damaged} damaged`,
+              beforeQuantity,
+              afterQuantity,
+            },
+          ],
+          { session: mongoSession }
+        )
 
         // Update transfer line item
         item.receivedQuantity = data.received

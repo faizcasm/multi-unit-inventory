@@ -78,11 +78,33 @@ export async function GET(request: NextRequest) {
         },
       ]),
 
-      // Low stock items
-      Inventory.countDocuments({
-        organization: orgId,
-        $expr: { $and: [{ $gt: ['$product.reorderThreshold', 0] }, { $lte: ['$availableQuantity', '$product.reorderThreshold'] }, { $gt: ['$availableQuantity', 0] }] },
-      }),
+      // Low stock items. `Inventory.product` is a bare ObjectId (never
+      // populated), so a $expr over '$product.reorderThreshold' matched
+      // nothing. Mirror the low-stock chart's $lookup instead.
+      Inventory.aggregate([
+        { $match: { organization: orgId } },
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'product',
+            foreignField: '_id',
+            as: 'productInfo',
+          },
+        },
+        { $unwind: '$productInfo' },
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $gt: ['$productInfo.reorderThreshold', 0] },
+                { $lte: ['$availableQuantity', '$productInfo.reorderThreshold'] },
+                { $gt: ['$availableQuantity', 0] },
+              ],
+            },
+          },
+        },
+        { $count: 'count' },
+      ]).then((rows) => rows[0]?.count ?? 0),
 
       // Out of stock items
       Inventory.countDocuments({ organization: orgId, availableQuantity: 0 }),

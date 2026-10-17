@@ -11,6 +11,7 @@ import { AuditEvent } from '@/models/AuditEvent'
 import { dispatchWebhook } from '@/lib/webhooks'
 import { Types } from 'mongoose'
 import { paginationSchema, filterSchema } from '@/lib/validation/schemas'
+import { escapeRegex } from '@/lib/escape-regex'
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,8 +27,8 @@ export async function GET(request: NextRequest) {
     await connectDB()
 
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(parseInt(searchParams.get('page') || '1', 10) || 1, 1)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20', 10) || 20, 1), 100)
     const search = searchParams.get('search') || ''
     const category = searchParams.get('category') || ''
     const isActive = searchParams.get('isActive')
@@ -43,10 +44,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
+      const safe = escapeRegex(search)
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-        { barcode: { $regex: search, $options: 'i' } },
+        { name: { $regex: safe, $options: 'i' } },
+        { sku: { $regex: safe, $options: 'i' } },
+        { barcode: { $regex: safe, $options: 'i' } },
       ]
     }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { connectDB } from '@/lib/db/mongodb'
 import { Organization } from '@/models/Organization'
 import { WebhookDelivery } from '@/models/Webhook'
@@ -6,7 +7,17 @@ import { ApiKey } from '@/models/ApiKey'
 
 export const dynamic = 'force-dynamic'
 
+// Cleanup pass can touch many docs; give it room on Vercel.
+export const maxDuration = 60
+
 const DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+/** Constant-time comparison so the secret can't be guessed byte-by-byte. */
+function secretMatches(header: string | null, secret: string): boolean {
+  const a = Buffer.from(header || '')
+  const b = Buffer.from(`Bearer ${secret}`)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 /** Vercel crons send `Authorization: Bearer $CRON_SECRET`. Never echoes the secret. */
 function checkCronAuth(request: NextRequest): NextResponse | null {
@@ -18,8 +29,7 @@ function checkCronAuth(request: NextRequest): NextResponse | null {
     )
   }
 
-  const header = request.headers.get('authorization') || ''
-  if (header !== `Bearer ${secret}`) {
+  if (!secretMatches(request.headers.get('authorization'), secret)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
   return null

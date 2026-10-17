@@ -121,8 +121,9 @@ ${opts.transferUrl}`
  * dead SMTP server cannot stall the API response.
  */
 // Generous enough for Gmail's handshake + delivery, still bounded so SMTP
-// can never stall a transfer action indefinitely.
-const SEND_TIMEOUT_MS = 10000
+// can never stall a transfer action indefinitely. Kept at 5s so a slow or
+// dead SMTP server caps API latency at an acceptable amount.
+const SEND_TIMEOUT_MS = 5000
 
 export async function sendTransferNotification(
   transferId: string,

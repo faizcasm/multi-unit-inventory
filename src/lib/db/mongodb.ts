@@ -27,9 +27,16 @@ async function connectDB(): Promise<typeof mongoose> {
   }
 
   if (!cached!.promise) {
+    // maxPoolSize 5: N warm serverless lambdas × 10 connections can exhaust
+    // Atlas connection caps. The timeout trio bounds how long an Atlas blip
+    // can hang a request instead of the driver default (~30s).
     const opts = {
       bufferCommands: false,
-      maxPoolSize: 10,
+      maxPoolSize: 5,
+      maxIdleTimeMS: 60_000,
+      serverSelectionTimeoutMS: 5_000,
+      connectTimeoutMS: 10_000,
+      socketTimeoutMS: 45_000,
     }
 
     if (!MONGODB_URI) {

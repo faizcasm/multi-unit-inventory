@@ -125,9 +125,20 @@ export async function PATCH(request: NextRequest) {
         )
       }
 
-      await Organization.findByIdAndUpdate(session.user.organizationId, {
-        $set: { settings: parsed.data },
-      })
+      // Patch only the provided keys. `settings` is a nested subdoc, so
+      // `$set: { settings: parsed.data }` would replace the whole object and
+      // wipe untouched settings (timezone, currency, ...) on partial saves.
+      const setOps: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (value !== undefined) setOps[`settings.${key}`] = value
+      }
+
+      // MongoDB rejects an empty `$set` (e.g. `organizationSettings: {}`).
+      if (Object.keys(setOps).length > 0) {
+        await Organization.findByIdAndUpdate(session.user.organizationId, {
+          $set: setOps,
+        })
+      }
 
       // Audit log
       await AuditEvent.create({

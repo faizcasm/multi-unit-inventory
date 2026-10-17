@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { connectDB } from '@/lib/db/mongodb'
 import { User } from '@/models/User'
+import { clientIp } from '@/lib/rate-limit'
+import { tooManyAttempts } from '@/lib/auth-throttle'
+
+const HOUR_MS = 60 * 60 * 1000
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +13,13 @@ export async function POST(request: NextRequest) {
     const token = typeof body?.token === 'string' ? body.token.trim() : ''
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
     const password = typeof body?.password === 'string' ? body.password : ''
+
+    // This endpoint is public (no session), so throttle BEFORE any processing:
+    // 10/hour per IP, plus 5/hour per IP+email to slow token brute-forcing.
+    const ip = clientIp(request)
+    const limited = tooManyAttempts(`rp:${ip}`, 10, HOUR_MS, 60) ||
+      (email ? tooManyAttempts(`rp:${ip}:${email}`, 5, HOUR_MS, 60) : null)
+    if (limited) return limited
 
     if (!token || !email) {
       return NextResponse.json({ success: false, error: 'Invalid or expired reset link' }, { status: 400 })

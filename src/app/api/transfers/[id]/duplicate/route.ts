@@ -40,35 +40,56 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Transfer not found' }, { status: 404 })
     }
 
-    // Generate reference — same mechanism as POST /api/transfers.
-    const count = await StockTransfer.countDocuments({ organization: session.user.organizationId })
-    const reference = `TXN-${String(count + 1).padStart(6, '0')}`
+    // Check location permissions — same guard as POST /api/transfers.
+    if (session.user.locationPermissions.length > 0) {
+      const sourceId = String(source.sourceLocation)
+      const destinationId = String(source.destinationLocation)
+      const hasSourceAccess = session.user.locationPermissions.includes(sourceId)
+      const hasDestAccess = session.user.locationPermissions.includes(destinationId)
+      if (!hasSourceAccess || !hasDestAccess) {
+        return NextResponse.json({ success: false, error: 'Forbidden: No access to one or both locations' }, { status: 403 })
+      }
+    }
 
+    // Generate reference — same mechanism as POST /api/transfers, including
+    // the retry on concurrent-create duplicate-key races so two simultaneous
+    // duplicates don't surface a raw E11000 as a 500.
     const notes = `Duplicated from ${source.reference}`
     const now = new Date()
 
-    const transfer = await StockTransfer.create({
-      organization: session.user.organizationId,
-      reference,
-      sourceLocation: source.sourceLocation,
-      destinationLocation: source.destinationLocation,
-      lineItems: source.lineItems.map((item) => ({
-        product: item.product,
-        requestedQuantity: item.requestedQuantity,
-        notes: item.notes,
-      })),
-      status: 'DRAFT',
-      requester: session.user.id,
-      statusHistory: [
-        {
+    let transfer: any = null
+    let reference = ''
+    for (let attempt = 0; attempt < 3 && !transfer; attempt++) {
+      const count = await StockTransfer.countDocuments({ organization: session.user.organizationId })
+      reference = `TXN-${String(count + 1).padStart(6, '0')}`
+      try {
+        transfer = await StockTransfer.create({
+          organization: session.user.organizationId,
+          reference,
+          sourceLocation: source.sourceLocation,
+          destinationLocation: source.destinationLocation,
+          lineItems: source.lineItems.map((item) => ({
+            product: item.product,
+            requestedQuantity: item.requestedQuantity,
+            notes: item.notes,
+          })),
           status: 'DRAFT',
-          changedBy: session.user.id,
-          changedAt: now,
+          requester: session.user.id,
+          statusHistory: [
+            {
+              status: 'DRAFT',
+              changedBy: session.user.id,
+              changedAt: now,
+              notes,
+            },
+          ],
           notes,
-        },
-      ],
-      notes,
-    })
+        })
+      } catch (error: any) {
+        if (error?.code === 11000 && attempt < 2) continue // reference collision — recount and retry
+        throw error
+      }
+    }
 
     // Audit log
     await AuditEvent.create({

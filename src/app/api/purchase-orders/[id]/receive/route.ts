@@ -4,6 +4,7 @@ import { PurchaseOrder } from '@/models/PurchaseOrder'
 import { Inventory } from '@/models/Inventory'
 import { InventoryMovement } from '@/models/InventoryMovement'
 import { Product } from '@/models/Product'
+import { Location } from '@/models/Location'
 import { auth } from '@/lib/auth/auth'
 import { hasPermission } from '@/lib/permissions'
 import { AuditEvent } from '@/models/AuditEvent'
@@ -97,6 +98,36 @@ export async function POST(
       }
     }
 
+    // Guard: the destination must still be an active location and every
+    // product being received must still be active — either could have
+    // changed since the PO was created.
+    const destination = await Location.findOne({
+      _id: purchaseOrder.destinationLocation,
+      organization: session.user.organizationId,
+      isActive: true,
+    })
+    if (!destination) {
+      return NextResponse.json({ success: false, error: 'Cannot receive into an inactive location' }, { status: 400 })
+    }
+
+    const activeProducts = await Product.find({
+      _id: { $in: Array.from(payload.keys()) },
+      organization: session.user.organizationId,
+      isActive: true,
+    })
+      .select('_id')
+      .lean()
+    const activeProductIds = new Set(activeProducts.map((p: any) => String(p._id)))
+    for (const productId of Array.from(payload.keys())) {
+      if (!activeProductIds.has(productId)) {
+        const productName = productNames.get(productId) || productId
+        return NextResponse.json(
+          { success: false, error: `Cannot receive an inactive product: ${productName}` },
+          { status: 400 }
+        )
+      }
+    }
+
     // Same transaction structure as the adjust / stocktake-post routes.
     const mongoSession = await Inventory.startSession()
     mongoSession.startTransaction()
@@ -104,8 +135,33 @@ export async function POST(
     try {
       const now = new Date()
 
+      // Re-read the PO inside the transaction so the over-receipt guard
+      // below sees receives that committed after the pre-transaction
+      // validation (TOCTOU), not the stale outer snapshot.
+      const freshPO = await PurchaseOrder.findOne({
+        _id: purchaseOrder._id,
+        organization: session.user.organizationId,
+      }).session(mongoSession)
+      if (!freshPO) {
+        await mongoSession.abortTransaction()
+        return NextResponse.json({ success: false, error: 'Purchase order not found' }, { status: 404 })
+      }
+
       for (const [productId, qty] of Array.from(payload.entries())) {
-        const line = purchaseOrder.lines.find((l: any) => l.product.toString() === productId)
+        const line = freshPO.lines.find((l: any) => l.product.toString() === productId)
+
+        // Re-check over-receipt right before mutating: a concurrent receive
+        // may have advanced receivedQuantity past the ordered quantity.
+        if (line && line.receivedQuantity + qty > line.requestedQuantity) {
+          await mongoSession.abortTransaction()
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Over-receipt detected on concurrent receive for ${line.productName || productId}`,
+            },
+            { status: 400 }
+          )
+        }
 
         const existing = await Inventory.findOne({
           organization: session.user.organizationId,
@@ -164,12 +220,16 @@ export async function POST(
         line.receivedQuantity = (line.receivedQuantity || 0) + qty
       }
 
-      purchaseOrder.receivedBy = session.user.id as any
-      const fullyReceived = purchaseOrder.lines.every(
+      freshPO.receivedBy = session.user.id as any
+      const fullyReceived = freshPO.lines.every(
         (l: any) => (l.receivedQuantity || 0) >= l.requestedQuantity
       )
-      purchaseOrder.status = fullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED'
-      await purchaseOrder.save({ session: mongoSession })
+      freshPO.status = fullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED'
+      await freshPO.save({ session: mongoSession })
+
+      // Keep the outer snapshot in sync for the response / notifications.
+      purchaseOrder.lines = freshPO.lines
+      purchaseOrder.status = freshPO.status
 
       await mongoSession.commitTransaction()
 

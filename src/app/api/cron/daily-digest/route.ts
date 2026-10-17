@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { Types } from 'mongoose'
 import { connectDB } from '@/lib/db/mongodb'
 import { Organization } from '@/models/Organization'
@@ -10,10 +11,20 @@ import { sendEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 
+// Give the digest loop (N orgs × queries × email sends) room on Vercel.
+export const maxDuration = 60
+
 const SEND_TIMEOUT_MS = 10000
 const LOW_STOCK_LIMIT = 20
 const PENDING_LIMIT = 20
 const INVITE_WINDOW_MS = 48 * 60 * 60 * 1000
+
+/** Constant-time comparison so the secret can't be guessed byte-by-byte. */
+function secretMatches(header: string | null, secret: string): boolean {
+  const a = Buffer.from(header || '')
+  const b = Buffer.from(`Bearer ${secret}`)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 /** Vercel crons send `Authorization: Bearer $CRON_SECRET`. Never echoes the secret. */
 function checkCronAuth(request: NextRequest): NextResponse | null {
@@ -25,8 +36,7 @@ function checkCronAuth(request: NextRequest): NextResponse | null {
     )
   }
 
-  const header = request.headers.get('authorization') || ''
-  if (header !== `Bearer ${secret}`) {
+  if (!secretMatches(request.headers.get('authorization'), secret)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
   return null
@@ -173,156 +183,164 @@ export async function GET(request: NextRequest) {
     const inviteCutoff = new Date(now.getTime() + INVITE_WINDOW_MS)
     const origin = appOrigin()
 
-    const orgs = (await Organization.find({ isActive: true }).select('name slug').lean()) as any[]
+    const orgs = (await Organization.find({ isActive: true }).select('name slug invites').lean()) as any[]
 
     let orgsProcessed = 0
     let emailsSent = 0
+    let failed = 0
 
     for (const org of orgs) {
-      const orgId = new Types.ObjectId(org._id)
+      // Per-org isolation: one bad org (query error, bad data) must not
+      // abort the digest loop for every other org.
+      try {
+        const orgId = new Types.ObjectId(org._id)
 
-      // 1. Products with a reorder threshold whose stock anywhere is at/below it.
-      const thresholdProducts = (await Product.find({
-        organization: orgId,
-        isActive: true,
-        reorderThreshold: { $gt: 0 },
-      })
-        .select('name sku reorderThreshold')
-        .limit(200)
-        .lean()) as any[]
-
-      // Sum available stock across locations per threshold product.
-      const stockTotals = thresholdProducts.length
-        ? ((await Inventory.aggregate([
-            {
-              $match: {
-                organization: orgId,
-                product: { $in: thresholdProducts.map((p) => p._id) },
-              },
-            },
-            { $group: { _id: '$product', available: { $sum: '$availableQuantity' } } },
-          ])) as any[])
-        : []
-
-      const availableByProduct = new Map<string, number>()
-      stockTotals.forEach((s) => availableByProduct.set(String(s._id), s.available))
-
-      const lowStock: LowStockRow[] = thresholdProducts
-        .map((p) => ({
-          name: p.name,
-          sku: p.sku,
-          available: availableByProduct.get(String(p._id)) ?? 0,
-          threshold: p.reorderThreshold,
-        }))
-        .filter((p) => p.available <= p.threshold)
-        .sort((a, b) => a.available - b.available)
-        .slice(0, LOW_STOCK_LIMIT)
-
-      // 2. Transfers waiting for an approval decision.
-      const pendingDocs = (await StockTransfer.find({
-        organization: orgId,
-        status: 'PENDING_APPROVAL',
-      })
-        .sort({ createdAt: 1 })
-        .limit(PENDING_LIMIT)
-        .select('reference requester lineItems createdAt')
-        .populate('requester', 'name')
-        .lean()) as any[]
-
-      const pending: PendingRow[] = pendingDocs.map((t) => ({
-        reference: t.reference,
-        requester: t.requester?.name || 'Unknown',
-        items: (t.lineItems || []).length,
-        createdAt: t.createdAt,
-      }))
-
-      // 3. Registration invites expiring within 48 hours (not yet accepted).
-      const invites: InviteRow[] = (org.invites || [])
-        .filter(
-          (i: any) =>
-            !i.acceptedAt &&
-            i.expiresAt &&
-            new Date(i.expiresAt) <= inviteCutoff &&
-            new Date(i.expiresAt) > now
-        )
-        .map((i: any) => ({
-          role: i.role,
-          email: i.email || null,
-          expiresAt: new Date(i.expiresAt),
-        }))
-        .slice(0, 20)
-
-      if (lowStock.length === 0 && pending.length === 0 && invites.length === 0) {
-        console.log(
-          `[cron] daily-digest org=${org.slug} low=0 pending=0 invites=0 recipients=0 delivered=0`
-        )
-        continue
-      }
-
-      // Recipients: active admins + inventory managers who haven't opted out.
-      const memberships = (await Membership.find({
-        organization: orgId,
-        role: { $in: ['admin', 'inventory_manager'] },
-        isActive: true,
-      }).populate('user', 'name email preferences isActive')) as any[]
-
-      const seen = new Set<string>()
-      const recipients: { name: string; email: string }[] = []
-      for (const m of memberships) {
-        const u = m.user
-        if (!u?.email || u.isActive === false) continue
-        if (u.preferences?.notifications?.email === false) continue
-        const key = String(u._id)
-        if (seen.has(key)) continue
-        seen.add(key)
-        recipients.push({ name: u.name, email: u.email })
-      }
-
-      if (recipients.length === 0) {
-        console.log(
-          `[cron] daily-digest org=${org.slug} low=${lowStock.length} pending=${pending.length} invites=${invites.length} recipients=0 delivered=0`
-        )
-        continue
-      }
-
-      const subject = `Ricoz daily digest — ${date}`
-      const sends = recipients.map((r) => {
-        const rendered = renderDigestEmail({
-          recipientName: r.name,
-          orgName: org.name,
-          date,
-          origin,
-          lowStock,
-          pending,
-          invites,
+        // 1. Products with a reorder threshold whose stock anywhere is at/below it.
+        const thresholdProducts = (await Product.find({
+          organization: orgId,
+          isActive: true,
+          reorderThreshold: { $gt: 0 },
         })
-        return sendEmail({ to: r.email, subject, html: rendered.html, text: rendered.text })
-      })
+          .select('name sku reorderThreshold')
+          .limit(200)
+          .lean()) as any[]
 
-      const outcome = await Promise.race([
-        Promise.allSettled(sends),
-        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), SEND_TIMEOUT_MS)),
-      ])
+        // Sum available stock across locations per threshold product.
+        const stockTotals = thresholdProducts.length
+          ? ((await Inventory.aggregate([
+              {
+                $match: {
+                  organization: orgId,
+                  product: { $in: thresholdProducts.map((p) => p._id) },
+                },
+              },
+              { $group: { _id: '$product', available: { $sum: '$availableQuantity' } } },
+            ])) as any[])
+          : []
 
-      const delivered =
-        outcome === 'timeout'
-          ? 0
-          : outcome.filter((r) => r.status === 'fulfilled' && r.value === true).length
+        const availableByProduct = new Map<string, number>()
+        stockTotals.forEach((s) => availableByProduct.set(String(s._id), s.available))
 
-      if (outcome === 'timeout') {
+        const lowStock: LowStockRow[] = thresholdProducts
+          .map((p) => ({
+            name: p.name,
+            sku: p.sku,
+            available: availableByProduct.get(String(p._id)) ?? 0,
+            threshold: p.reorderThreshold,
+          }))
+          .filter((p) => p.available <= p.threshold)
+          .sort((a, b) => a.available - b.available)
+          .slice(0, LOW_STOCK_LIMIT)
+
+        // 2. Transfers waiting for an approval decision.
+        const pendingDocs = (await StockTransfer.find({
+          organization: orgId,
+          status: 'PENDING_APPROVAL',
+        })
+          .sort({ createdAt: 1 })
+          .limit(PENDING_LIMIT)
+          .select('reference requester lineItems createdAt')
+          .populate('requester', 'name')
+          .lean()) as any[]
+
+        const pending: PendingRow[] = pendingDocs.map((t) => ({
+          reference: t.reference,
+          requester: t.requester?.name || 'Unknown',
+          items: (t.lineItems || []).length,
+          createdAt: t.createdAt,
+        }))
+
+        // 3. Registration invites expiring within 48 hours (not yet accepted).
+        const invites: InviteRow[] = (org.invites || [])
+          .filter(
+            (i: any) =>
+              !i.acceptedAt &&
+              i.expiresAt &&
+              new Date(i.expiresAt) <= inviteCutoff &&
+              new Date(i.expiresAt) > now
+          )
+          .map((i: any) => ({
+            role: i.role,
+            email: i.email || null,
+            expiresAt: new Date(i.expiresAt),
+          }))
+          .slice(0, 20)
+
+        if (lowStock.length === 0 && pending.length === 0 && invites.length === 0) {
+          console.log(
+            `[cron] daily-digest org=${org.slug} low=0 pending=0 invites=0 recipients=0 delivered=0`
+          )
+          continue
+        }
+
+        // Recipients: active admins + inventory managers who haven't opted out.
+        const memberships = (await Membership.find({
+          organization: orgId,
+          role: { $in: ['admin', 'inventory_manager'] },
+          isActive: true,
+        }).populate('user', 'name email preferences isActive')) as any[]
+
+        const seen = new Set<string>()
+        const recipients: { name: string; email: string }[] = []
+        for (const m of memberships) {
+          const u = m.user
+          if (!u?.email || u.isActive === false) continue
+          if (u.preferences?.notifications?.email === false) continue
+          const key = String(u._id)
+          if (seen.has(key)) continue
+          seen.add(key)
+          recipients.push({ name: u.name, email: u.email })
+        }
+
+        if (recipients.length === 0) {
+          console.log(
+            `[cron] daily-digest org=${org.slug} low=${lowStock.length} pending=${pending.length} invites=${invites.length} recipients=0 delivered=0`
+          )
+          continue
+        }
+
+        const subject = `Ricoz daily digest — ${date}`
+        const sends = recipients.map((r) => {
+          const rendered = renderDigestEmail({
+            recipientName: r.name,
+            orgName: org.name,
+            date,
+            origin,
+            lowStock,
+            pending,
+            invites,
+          })
+          return sendEmail({ to: r.email, subject, html: rendered.html, text: rendered.text })
+        })
+
+        const outcome = await Promise.race([
+          Promise.allSettled(sends),
+          new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), SEND_TIMEOUT_MS)),
+        ])
+
+        const delivered =
+          outcome === 'timeout'
+            ? 0
+            : outcome.filter((r) => r.status === 'fulfilled' && r.value === true).length
+
+        if (outcome === 'timeout') {
+          console.log(
+            `[cron] daily-digest org=${org.slug}: sends still in flight after ${SEND_TIMEOUT_MS}ms`
+          )
+        }
+
+        orgsProcessed += 1
+        emailsSent += delivered
         console.log(
-          `[cron] daily-digest org=${org.slug}: sends still in flight after ${SEND_TIMEOUT_MS}ms`
+          `[cron] daily-digest org=${org.slug} low=${lowStock.length} pending=${pending.length} invites=${invites.length} recipients=${recipients.length} delivered=${delivered}`
         )
+      } catch (error) {
+        failed += 1
+        console.error(`[cron] daily-digest org=${org.slug} failed:`, error)
       }
-
-      orgsProcessed += 1
-      emailsSent += delivered
-      console.log(
-        `[cron] daily-digest org=${org.slug} low=${lowStock.length} pending=${pending.length} invites=${invites.length} recipients=${recipients.length} delivered=${delivered}`
-      )
     }
 
-    return NextResponse.json({ success: true, data: { orgsProcessed, emailsSent } })
+    return NextResponse.json({ success: true, data: { orgsProcessed, emailsSent, failed } })
   } catch (error) {
     console.error('[cron] daily-digest failed:', error)
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })

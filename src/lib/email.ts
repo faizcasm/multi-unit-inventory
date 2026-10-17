@@ -26,6 +26,11 @@ function getTransport() {
     pool: true,
     maxConnections: 2,
     maxMessages: 100,
+    // Without these a dead SMTP host hangs a request for nodemailer's default
+    // ~2 minutes. Fail fast instead: dial 10s, banner 10s, idle I/O 20s.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASSWORD,
@@ -37,6 +42,19 @@ function getTransport() {
 
 export function isSmtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD)
+}
+
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+/** Minimal HTML-entity escaping for values interpolated into email bodies. */
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch] ?? ch)
 }
 
 export async function sendEmail({ to, subject, html, text }: MailOptions): Promise<boolean> {
@@ -62,6 +80,7 @@ export async function sendEmail({ to, subject, html, text }: MailOptions): Promi
 }
 
 export function renderPasswordResetEmail(resetUrl: string, name: string): { html: string; text: string } {
+  const safeName = escapeHtml(name || 'there')
   const html = `
   <div style="font-family:'DM Sans',Arial,sans-serif;background:#f8f7fb;padding:34px 20px;color:#201c33">
     <div style="max-width:440px;margin:0 auto;background:#fff;border:1px solid #eceaf3;border-radius:16px;overflow:hidden">
@@ -71,7 +90,7 @@ export function renderPasswordResetEmail(resetUrl: string, name: string): { html
       </div>
       <div style="padding:22px 28px 28px">
         <p style="font-size:10px;font-weight:800;letter-spacing:1.5px;color:#8069dc;margin:0 0 12px">PASSWORD RESET</p>
-        <h1 style="font-family:Manrope,Arial,sans-serif;font-size:22px;letter-spacing:-.8px;margin:0 0 10px">Hi ${name || 'there'},</h1>
+        <h1 style="font-family:Manrope,Arial,sans-serif;font-size:22px;letter-spacing:-.8px;margin:0 0 10px">Hi ${safeName},</h1>
         <p style="font-size:13px;line-height:1.8;color:#77758a;margin:0 0 20px">
           We received a request to reset your Ricoz Inventory password. This link expires in 1 hour.
           If you didn&apos;t request this, you can safely ignore this email.

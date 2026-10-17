@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db/mongodb'
 import { User } from '@/models/User'
 import { Membership } from '@/models/Membership'
+import { Location } from '@/models/Location'
 import { Organization } from '@/models/Organization'
 import { auth } from '@/lib/auth/auth'
 import { hasPermission, canUserPerformAction } from '@/lib/permissions'
@@ -113,6 +114,36 @@ export async function PATCH(request: NextRequest) {
     const oldRole = membership.role
     const oldPermissions = membership.locationPermissions
 
+    // Last-admin guard: an org must always retain at least one active admin.
+    if (membership.role === 'admin' && role !== 'admin') {
+      const adminCount = await Membership.countDocuments({
+        organization: session.user.organizationId,
+        role: 'admin',
+        isActive: true,
+      })
+      if (adminCount <= 1) {
+        return NextResponse.json({ success: false, error: 'Cannot demote the last admin' }, { status: 400 })
+      }
+    }
+
+    // Location permissions may only reference active locations of this org.
+    if (locationPermissions) {
+      if (!locationPermissions.every((id) => Types.ObjectId.isValid(id))) {
+        return NextResponse.json({ success: false, error: 'One or more location ids are invalid' }, { status: 400 })
+      }
+      const locations = await Location.find({
+        _id: { $in: locationPermissions },
+        organization: session.user.organizationId,
+        isActive: true,
+      })
+        .select('_id')
+        .lean()
+      const validIds = new Set(locations.map((l) => String(l._id)))
+      if (locationPermissions.some((id) => !validIds.has(id))) {
+        return NextResponse.json({ success: false, error: 'One or more location ids are invalid' }, { status: 400 })
+      }
+    }
+
     membership.role = role
     if (locationPermissions) {
       membership.locationPermissions = locationPermissions.map((id) => new Types.ObjectId(id))
@@ -164,6 +195,18 @@ export async function DELETE(request: NextRequest) {
     const membership = await Membership.findOne({ user: userId, organization: session.user.organizationId, isActive: true })
     if (!membership) {
       return NextResponse.json({ success: false, error: 'User not found in this organization' }, { status: 404 })
+    }
+
+    // Last-admin guard: never remove the org's only active admin.
+    if (membership.role === 'admin') {
+      const adminCount = await Membership.countDocuments({
+        organization: session.user.organizationId,
+        role: 'admin',
+        isActive: true,
+      })
+      if (adminCount <= 1) {
+        return NextResponse.json({ success: false, error: 'Cannot demote the last admin' }, { status: 400 })
+      }
     }
 
     membership.isActive = false

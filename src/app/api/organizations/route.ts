@@ -15,7 +15,11 @@ export async function GET(request: NextRequest) {
 
     await connectDB()
 
-    const organization = await Organization.findById(session.user.organizationId).lean() as any
+    // Never leak invite tokenHashes (bearer secrets for accepting invites) to
+    // ordinary members — project them out; every other field is unchanged.
+    const organization = await Organization.findById(session.user.organizationId)
+      .select('-invites.tokenHash')
+      .lean() as any
     if (!organization) {
       return NextResponse.json({ success: false, error: 'Organization not found' }, { status: 404 })
     }

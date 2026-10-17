@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db/mongodb'
 import { User } from '@/models/User'
 import { auth } from '@/lib/auth/auth'
+import { clientIp } from '@/lib/rate-limit'
+import { tooManyAttempts } from '@/lib/auth-throttle'
+
+const FIFTEEN_MIN_MS = 15 * 60 * 1000
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +13,12 @@ export async function POST(request: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
+
+    // Authenticated, but still throttle brute-forcing of the current password:
+    // 10 attempts / 15 min per IP+account, checked before any verification work.
+    const email = (session.user.email || '').trim().toLowerCase()
+    const limited = tooManyAttempts(`cp:${clientIp(request)}:${email}`, 10, FIFTEEN_MIN_MS, 15)
+    if (limited) return limited
 
     const body = await request.json().catch(() => null)
     const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : ''

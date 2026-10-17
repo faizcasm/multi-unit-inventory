@@ -3,6 +3,9 @@ import { connectDB } from '@/lib/db/mongodb'
 import { Webhook, WebhookDelivery, WEBHOOK_EVENT_VALUES } from '@/models/Webhook'
 
 const DELIVERY_TIMEOUT_MS = 8000
+// Hard cap on how long dispatchWebhook may block its caller. Deliveries keep
+// running in the background after this; only the await is capped.
+const DISPATCH_WAIT_MS = 3000
 
 export function generateWebhookSecret(): string {
   return `whsec_${randomBytes(24).toString('hex')}`
@@ -36,7 +39,15 @@ export async function dispatchWebhook(input: {
 
     if (hooks.length === 0) return
 
-    await Promise.allSettled(hooks.map((hook) => deliver(hook, input)))
+    // Deliveries are fire-and-forget past DISPATCH_WAIT_MS: one dead hook URL
+    // must not add seconds to every mutation's HTTP response. `deliver` handles
+    // its own bookkeeping, so continuing in the background is safe.
+    const deliveries = Promise.allSettled(hooks.map((hook) => deliver(hook, input)))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), DISPATCH_WAIT_MS)
+    })
+    await Promise.race([deliveries, timeout]).finally(() => clearTimeout(timer))
   } catch (error) {
     console.error('[webhook] dispatch failed:', error)
   }

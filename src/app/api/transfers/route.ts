@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
     await connectDB()
 
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(parseInt(searchParams.get('page') || '1', 10) || 1, 1)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20', 10) || 20, 1), 100)
     const status = searchParams.get('status') || ''
     const sourceLocationId = searchParams.get('sourceLocationId') || ''
     const destinationLocationId = searchParams.get('destinationLocationId') || ''
@@ -168,33 +168,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate reference
-    const count = await StockTransfer.countDocuments({ organization: session.user.organizationId })
-    const reference = `TXN-${String(count + 1).padStart(6, '0')}`
-
-    // Create transfer
-    const transfer = await StockTransfer.create({
-      organization: session.user.organizationId,
-      reference,
-      sourceLocation: sourceLocationId,
-      destinationLocation: destinationLocationId,
-      lineItems: lineItems.map((item) => ({
-        product: item.productId,
-        requestedQuantity: item.requestedQuantity,
-        notes: item.notes,
-      })),
-      status: 'DRAFT',
-      requester: session.user.id,
-      statusHistory: [
-        {
+    // Generate reference — retry on concurrent-create duplicate-key races so
+    // two simultaneous creates don't surface a raw E11000 as a 500.
+    let transfer: any = null
+    let reference = ''
+    for (let attempt = 0; attempt < 3 && !transfer; attempt++) {
+      const count = await StockTransfer.countDocuments({ organization: session.user.organizationId })
+      reference = `TXN-${String(count + 1).padStart(6, '0')}`
+      try {
+        transfer = await StockTransfer.create({
+          organization: session.user.organizationId,
+          reference,
+          sourceLocation: sourceLocationId,
+          destinationLocation: destinationLocationId,
+          lineItems: lineItems.map((item) => ({
+            product: item.productId,
+            requestedQuantity: item.requestedQuantity,
+            notes: item.notes,
+          })),
           status: 'DRAFT',
-          changedBy: session.user.id,
-          changedAt: new Date(),
-          notes: 'Transfer created as draft',
-        },
-      ],
-      notes,
-    })
+          requester: session.user.id,
+          statusHistory: [
+            {
+              status: 'DRAFT',
+              changedBy: session.user.id,
+              changedAt: new Date(),
+              notes: 'Transfer created as draft',
+            },
+          ],
+          notes,
+        })
+      } catch (error: any) {
+        if (error?.code === 11000 && attempt < 2) continue // reference collision — recount and retry
+        throw error
+      }
+    }
 
     // Audit log
     await AuditEvent.create({
